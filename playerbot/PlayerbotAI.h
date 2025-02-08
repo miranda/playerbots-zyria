@@ -365,8 +365,17 @@ public:
     virtual void UpdateAI(uint32 elapsed, bool minimal = false);
 
     void HandleCommands();
+
 private:
     void UpdateAIInternal(uint32 elapsed, bool minimal = false) override;
+
+	void InitiateChat();
+    time_t lastInitiateChatTime = 0;
+	static std::unordered_map<uint32, time_t> initiateChatGuildCooldowns;	// Tracks cooldowns by guild ID
+	static std::unordered_map<uint32, time_t> initiateChatGroupCooldowns;	// Tracks cooldowns by group ID
+	std::unordered_map<std::string, std::chrono::steady_clock::time_point> lastMessageTime;
+	std::unordered_map<std::string, uint32_t> conversationReplyCount; // Per-bot tracking
+    std::mutex chatMutex; // Per-bot mutex
 
 public:
     static std::string BotStateToString(BotState state);
@@ -536,8 +545,8 @@ public:
     std::list<Unit*> GetAllHostileUnitsAroundWO(WorldObject* wo, float distanceAround);
     std::list<Unit*> GetAllHostileNPCNonPetUnitsAroundWO(WorldObject* wo, float distanceAround);
 
-    static void SendDelayedPacket(WorldSession* session, std::future<std::vector<std::pair<WorldPacket, uint32>>> futurePacket);
-    void ReceiveDelayedPacket(std::future<std::vector<std::pair<WorldPacket, uint32>>> futurePacket);
+	static void SendDelayedPacket(WorldSession* session, std::future<std::vector<std::pair<WorldPacket, uint32>>> futurePacket);
+	void ReceiveDelayedPacket(std::future<std::vector<std::pair<WorldPacket, uint32>>> futurePacket);
 public:
     std::vector<Bag*> GetEquippedAnyBags();
     std::vector<Bag*> GetEquippedQuivers();
@@ -592,7 +601,6 @@ public:
     bool HasPlayerNearby(float range = sPlayerbotAIConfig.reactDistance);
     bool HasManyPlayersNearby(uint32 trigerrValue = 20, float range = sPlayerbotAIConfig.sightDistance);
     bool ChannelHasRealPlayer(std::string channelName);
-
 
     ActivePiorityType GetPriorityType();
     std::pair<uint32,uint32> GetPriorityBracket(ActivePiorityType type);

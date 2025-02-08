@@ -13,7 +13,9 @@
 #include "playerbot/TravelMgr.h"
 #include "SayAction.h"
 #include "playerbot/PlayerbotLLMInterface.h"
+#include <boost/json.hpp>
 
+#include "playerbot/ZyriaDebug.h"
 
 using namespace ai;
 
@@ -421,7 +423,9 @@ bool RpgAIChatAction::RequestNewLines()
     ChatReplyAction::GetAIChatPlaceholders(placeholders, bot, "bot");
     ChatReplyAction::GetAIChatPlaceholders(placeholders, unit, "unit", bot);
 
-    std::string prePrompt = sPlayerbotAIConfig.llmPreRpgPrompt;
+    std::string prePrompt = "";
+	if (!sPlayerbotAIConfig.llmUseZyriaServer)
+		sPlayerbotAIConfig.llmPreRpgPrompt; // Start pre-prompt with aiplayerbot.conf value if not using python LLM server
 
     if (AI_VALUE2(bool, "trigger active", "rpg start quest"))
         prePrompt += " <unit name> can offer <bot name> a new quest.";
@@ -457,46 +461,145 @@ bool RpgAIChatAction::RequestNewLines()
         break;
     }
 
-    std::string postPompt;
+    std::string postPrompt;
 
     if (chatLine == 2)
-        postPompt = "[<bot name> has to go. Say goodbye.]";
+        postPrompt = "[<bot name> has to go. Say goodbye.]";
 
-    postPompt += sPlayerbotAIConfig.llmPostPrompt;
+    postPrompt += sPlayerbotAIConfig.llmPostPrompt;
 
-    std::map<std::string, std::string> jsonFill;
-    jsonFill["<pre prompt>"] = prePrompt;
-    jsonFill["<prompt>"] = "";
-    jsonFill["<post prompt>"] = postPompt;
+    std::string json;
+	std::map<std::string, std::string> jsonFill;
+	std::string startPattern, endPattern, deletePattern, splitPattern;
+	startPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseStartPattern, placeholders);
 
-    for (auto& prompt : jsonFill)
-    {
-        prompt.second = BOT_TEXT2(prompt.second, placeholders);
-    }
+	if (sPlayerbotAIConfig.llmUseZyriaServer)
+	{
+		boost::json::object botDetails, unitDetails, jsonData;
 
-    uint32 currentLength = jsonFill["<pre prompt>"].size() + jsonFill["<context>"].size() + jsonFill["<prompt>"].size() + llmContext.size();
-    PlayerbotLLMInterface::LimitContext(llmContext, currentLength);
-    jsonFill["<context>"] = llmContext;
+		// Populate bot details
+		botDetails["name"]   = bot->GetName();
+		botDetails["gender"] = bot->getGender() == GENDER_MALE ? "male" : "female";
+		botDetails["level"]  = std::to_string(bot->GetLevel());
+		botDetails["race"]   = ChatHelper::formatRace(bot->getRace());
+		botDetails["class"]  = ChatHelper::formatClass(bot->getClass());
+		botDetails["guild"]  = ChatHelper::getGuildName(bot);
+		botDetails["zone"]   = WorldPosition(bot).getAreaName();
+		botDetails["subzone"] = WorldPosition(bot).getAreaOverride();
 
-    for (auto& prompt : jsonFill)
-    {
-        prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
-    }
+		// Populate unit details
+		unitDetails["name"]		= unit->GetName();
 
-    for (auto& prompt : placeholders) //Sanitize now instead of earlier to prevent double Sanitation
-    {
-        prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
-    }
+		if (unit->IsCreature())
+		{
+			Creature* creature = static_cast<Creature*>(unit);
+			unitDetails["sub_name"] = creature->GetSubName() ? std::string(creature->GetSubName()) : "";
+			switch (creature->GetCreatureType())
+			{
+			case CREATURE_TYPE_BEAST:
+				unitDetails["type"]	= "beast";
+				break;
+			case  CREATURE_TYPE_DRAGONKIN:
+				unitDetails["type"]	= "dragonkin";
+				break;
+			case      CREATURE_TYPE_DEMON:
+				unitDetails["type"]	= "demon";
+				break;
+			case    CREATURE_TYPE_ELEMENTAL:
+				unitDetails["type"]	= "elemental";
+				break;
+			case    CREATURE_TYPE_GIANT:
+				unitDetails["type"]	= "giant";
+				break;
+			case   CREATURE_TYPE_UNDEAD:
+				unitDetails["type"]	= "undead";
+				break;
+			case  CREATURE_TYPE_HUMANOID:
+				unitDetails["type"]	= "humanoid";
+				break;
+			case  CREATURE_TYPE_CRITTER:
+				unitDetails["type"]	= "critter";
+				break;
+			case  CREATURE_TYPE_MECHANICAL:
+				unitDetails["type"]	= "mechanical";
+				break;
+			case  CREATURE_TYPE_NOT_SPECIFIED:
+				unitDetails["type"]	= "being";
+				break;
+			case  CREATURE_TYPE_TOTEM:
+				unitDetails["type"]	= "totem";
+				break;
+			default:
+				unitDetails["type"]	= "unknown";
+			}
+		}
+		else
+		{
+			unitDetails["sub_name"] = "";
+			unitDetails["type"]	= "unknown";
+		}
+		FactionTemplateEntry const* factionTemplate = unit->GetFactionTemplateEntry();
+		uint32 factionId = factionTemplate ? factionTemplate->faction : 0;
 
-    std::string startPattern, endPattern, deletePattern, splitPattern;
-    startPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseStartPattern, placeholders);
-    endPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseEndPattern, placeholders);
-    deletePattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseDeletePattern, placeholders);
-    splitPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseSplitPattern, placeholders);
+		unitDetails["faction"]	= ChatHelper::formatFactionName(factionId);
+		unitDetails["gender"]	= unit->getGender() == GENDER_MALE ? "male" : "female";
+		unitDetails["level"]	= std::to_string(unit->GetLevel());
+		unitDetails["race"]		= ChatHelper::formatRace(unit->getRace());
+		unitDetails["class"]	= ChatHelper::formatClass(unit->getClass());
 
-    std::string json = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmApiJson, jsonFill);
+		// Populate JSON data
+		jsonData["sender"]       = botIstalking ? "bot" : "npc";
+		jsonData["message_type"] = "rpg";
+		jsonData["bot_details"]	 = botDetails;
+		jsonData["unit_details"] = unitDetails;
+		
+		jsonData["expansion"]	= sPlayerbotAIConfig.llmExpansionSelect;
+		jsonData["pre_prompt"]	= PlayerbotTextMgr::GetReplacePlaceholders(prePrompt, placeholders);
+		jsonData["post_prompt"]	= PlayerbotTextMgr::GetReplacePlaceholders(postPrompt, placeholders);
 
-    json = PlayerbotTextMgr::GetReplacePlaceholders(json, placeholders);
+		uint32 currentLength = llmContext.size();
+		PlayerbotLLMInterface::LimitContext(llmContext, currentLength);
+		jsonData["context"] = PlayerbotLLMInterface::SanitizeForJson(llmContext);
+
+		json = boost::json::serialize(jsonData);
+		ZyriaDebug("DEBUG RPG: Serialized JSON: " + json);
+
+		endPattern = "\"";
+		deletePattern = "";
+		splitPattern = "\\|"; 
+	}
+	else
+	{
+		jsonFill["<pre prompt>"] = prePrompt;
+		jsonFill["<prompt>"] = "";
+		jsonFill["<post prompt>"] = postPrompt;
+
+		for (auto& prompt : jsonFill)
+		{
+			prompt.second = BOT_TEXT2(prompt.second, placeholders);
+		}
+
+		uint32 currentLength = jsonFill["<pre prompt>"].size() + jsonFill["<context>"].size() + jsonFill["<prompt>"].size() + llmContext.size();
+		PlayerbotLLMInterface::LimitContext(llmContext, currentLength);
+		jsonFill["<context>"] = llmContext;
+
+		for (auto& prompt : jsonFill)
+		{
+			prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
+		}
+
+		for (auto& prompt : placeholders) //Sanitize now instead of earlier to prevent double Sanitation
+		{
+			prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
+		}
+
+		json = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmApiJson, jsonFill);
+		json = PlayerbotTextMgr::GetReplacePlaceholders(json, placeholders);
+
+		endPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseEndPattern, placeholders);
+		deletePattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseDeletePattern, placeholders);
+		splitPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseSplitPattern, placeholders);
+	}
 
     WorldSession* session = bot->GetSession();
 
@@ -516,7 +619,7 @@ bool RpgAIChatAction::RequestNewLines()
         emoteTemplate = ChatReplyAction::GetPacketTemplate(SMSG_CHAT_RESTRICTED, CHAT_MSG_MONSTER_EMOTE, unit, bot);
     }
 
-    futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
+	futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
 
     if (!urand(0, 10))
         chatLine += urand(-2, 2) * 2;

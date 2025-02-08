@@ -18,6 +18,8 @@
 
 set(LIBRARY_NAME playerbots)
 
+find_package(Boost REQUIRED COMPONENTS json)
+
 #Add PCH Files
 set(bots_PCH "${CMAKE_CURRENT_SOURCE_DIR}/botpch.h")
 
@@ -159,6 +161,7 @@ target_link_libraries(${LIBRARY_NAME}
   PRIVATE Detour
   PRIVATE g3dlite
   PRIVATE zlib
+  PRIVATE Boost::json
 )
 
 target_include_directories(${LIBRARY_NAME}

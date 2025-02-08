@@ -627,8 +627,10 @@ bool PlayerbotAIConfig::Initialize()
     respawnModForInstances = config.GetBoolDefault("AiPlayerbot.RespawnModForInstances", false);
 
     //LLM START
-    llmEnabled = config.GetIntDefault("AiPlayerbot.LLMEnabled", 1);
-    llmApiEndpoint = config.GetStringDefault("AiPlayerbot.LLMApiEndpoint", "http://127.0.0.1:5001/api/v1/generate");
+    llmEnabled = config.GetIntDefault("AiPlayerbot.LLMEnabled", 2);
+    llmUseZyriaServer = config.GetIntDefault("AiPlayerbot.LLMUseZyriaServer", 1);
+    llmZyriaDebugLogging = config.GetIntDefault("AiPlayerbot.LLMZyriaDebugLogging", 0);
+    llmApiEndpoint = config.GetStringDefault("AiPlayerbot.LLMApiEndpoint", "http://127.0.0.1:5050/zyria/v1/generate");
     try {
         llmEndPointUrl = parseUrl(llmApiEndpoint);
     }
@@ -637,11 +639,17 @@ bool PlayerbotAIConfig::Initialize()
     }
     llmApiKey = config.GetStringDefault("AiPlayerbot.LLMApiKey", "");    
     llmApiJson = config.GetStringDefault("AiPlayerbot.LLMApiJson", "{ \"max_length\": 100, \"prompt\": \"[<pre prompt>]<context> <prompt> <post prompt>\"}");
-    llmContextLength = config.GetIntDefault("AiPlayerbot.LLMContextLength", 4096);
+    llmContextLength = config.GetIntDefault("AiPlayerbot.LLMContextLength", 2048);
+    llmContextTrimAmount = config.GetIntDefault("AiPlayerbot.LLMContextTrimAmount", 30);
     llmGenerationTimeout = config.GetIntDefault("AiPlayerbot.LLMGenerationTimeout", 600);
     llmMaxSimultaniousGenerations = config.GetIntDefault("AiPlayerbot.LLMMaxSimultaniousGenerations", 100);
-        
-    
+    llmBotInitiateChance = config.GetFloatDefault("AiPlayerbot.LLMBotInitiateChance", 0.2f);
+    llmBotInitiateCooldown = config.GetIntDefault("AiPlayerbot.LLMBotInitiateCooldown", 300);
+    llmBotInitiateGuild = config.GetIntDefault("AiPlayerbot.LLMBotInitiateGuild", 50);
+	llmBotToBotMaxResponses = config.GetIntDefault("AiPlayerbot.LLMBotToBotMaxResponses", 2);
+	llmBotToBotResetTime = config.GetIntDefault("AiPlayerbot.LLMBotToBotResetTime", 60);   
+	llmExpansionSelect = config.GetIntDefault("AiPlayerbot.LLMExpansionSelect", 1);   
+
     llmPrePrompt = config.GetStringDefault("AiPlayerbot.LLMPrePrompt", "You are a roleplaying character in World of Warcraft: <expansion name>. Your name is <bot name>. The <other type> <other name> is speaking to you <channel name> and is an <other gender> <other race> <other class> of level <other level>. You are level <bot level> and play as a <bot gender> <bot race> <bot class> that is currently in <bot subzone> <bot zone>. Answer as a roleplaying character. Limit responses to 100 characters.");
 
     llmPreRpgPrompt = config.GetStringDefault("AiPlayerbot.LLMRpgPrompt", "In World of Warcraft: <expansion name> in <bot zone> <bot subzone> stands <bot type> <bot name> a level <bot level> <bot gender> <bot race> <bot class>."
@@ -655,8 +663,7 @@ bool PlayerbotAIConfig::Initialize()
     llmResponseStartPattern = config.GetStringDefault("AiPlayerbot.LLMResponseStartPattern", R"(("text":\s*"))");
     llmResponseEndPattern = config.GetStringDefault("AiPlayerbot.LLMResponseEndPattern", R"(("|\b(?!<sender name>\b)(\w+):))");
     llmResponseDeletePattern = config.GetStringDefault("AiPlayerbot.LLMResponseDeletePattern", R"((\\n|<sender name>:|\\[^ ]+))");
-    llmResponseSplitPattern = config.GetStringDefault("AiPlayerbot.LLMResponseSplitPattern", R"((\*.*?\*)|(\[.*?\])|(\'.*\')|([^\*\[\] ][^\*\[\]]+?[.?!]))");
-
+    llmResponseSplitPattern = config.GetStringDefault("AiPlayerbot.LLMResponseSplitPattern", R"((?:[^.!?]|\.{2,})+(?:[!?]+|\.)(?:\s+|$))");
     if (false) //Disable for release
     {
         sLog.outError("# AiPlayerbot.LLMResponseStartPattern = %s", llmResponseStartPattern.c_str());

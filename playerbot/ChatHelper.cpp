@@ -6,6 +6,7 @@
 #include <numeric>
 #include <iomanip>
 #include <regex>
+#include "Guilds/GuildMgr.h"
 
 using namespace ai;
 
@@ -1144,4 +1145,47 @@ void ChatHelper::replaceSubstring(std::string& str, const std::string& oldStr, c
         str.replace(pos, oldStr.length(), newStr);
         pos = str.find(oldStr, pos + newStr.length());
     }
+}
+
+std::string ChatHelper::getGuildName(Unit* unit)
+{
+    // Get guild name for bots and players
+    std::string guildName = "No Guild";
+
+    if (unit->IsPlayer()) {
+        // Use a separate declaration for `player`
+        Player* player = dynamic_cast<Player*>(unit);
+        if (player) {
+            Guild* guild = sGuildMgr.GetGuildById(player->GetGuildId());
+            if (guild) {
+                guildName = guild->GetName();
+            }
+        }
+    }
+    return guildName;
+}
+
+std::vector<std::string> ChatHelper::getGuildMembers(Player* bot)
+{
+    std::vector<std::string> membersList;
+
+    if (!bot || !bot->GetGuildId())
+        return membersList;
+
+    // Retrieve the guild using the global guild manager
+    Guild* guild = sGuildMgr.GetGuildById(bot->GetGuildId());
+    if (!guild)
+        return membersList;
+
+    // Define the lambda function as a local variable
+    auto processMember = [&membersList, bot](Player* player)
+    {
+        if (player != bot) // Exclude the bot itself
+            membersList.emplace_back(player->GetName());
+    };
+
+    // Pass the local lambda variable to BroadcastWorker
+    guild->BroadcastWorker(processMember);
+
+    return membersList;
 }

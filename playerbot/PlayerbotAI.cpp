@@ -52,6 +52,9 @@
 #include "LuaEngine/LuaEngine.h"
 #endif
 
+#include <mutex>
+#include "ZyriaDebug.h"
+
 using namespace ai;
 
 std::vector<std::string>& split(const std::string &s, char delim, std::vector<std::string> &elems);
@@ -61,6 +64,9 @@ uint64 extractGuid(WorldPacket& packet);
 std::string &trim(std::string &s);
 
 std::set<std::string> PlayerbotAI::unsecuredCommands;
+
+std::unordered_map<uint32, time_t> PlayerbotAI::initiateChatGuildCooldowns;	// Tracks cooldowns by guild ID
+std::unordered_map<uint32, time_t> PlayerbotAI::initiateChatGroupCooldowns;	// Tracks cooldowns by group ID
 
 uint32 PlayerbotChatHandler::extractQuestId(std::string str)
 {
@@ -259,6 +265,21 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         aiInternalUpdateDelay = 0;
         isWaiting = false;
     }
+
+	// Randomly initiate conversation
+	time_t now = time(0);
+
+	// Run InitiateChat only if at least 10 seconds has passed since the last execution
+	if (now - lastInitiateChatTime >= 10)
+	{
+		// Run InitiateChat only if enabled and bot has relation to real player
+		if (sPlayerbotAIConfig.llmEnabled > 0 && sPlayerbotAIConfig.llmUseZyriaServer && HasPlayerRelation() &&
+			(HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3))
+		{
+			lastInitiateChatTime = now;  // Update the last execution time
+			InitiateChat();
+		}
+	}
 
     // cancel logout in combat
     if (bot->IsStunnedByLogout() || bot->GetSession()->isLogingOut())
@@ -1118,6 +1139,88 @@ void PlayerbotAI::UpdateAIInternal(uint32 elapsed, bool minimal)
 	DoNextAction(minimal);
 }
 
+void PlayerbotAI::InitiateChat()
+{
+	int delayMs = urand(0, 100); // Introduce random delay to stagger bot processing order
+	std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+
+    time_t now = time(0);
+    time_t lastChat = GetAiObjectContext()->GetValue<time_t>("last said", "chat")->Get();
+
+    float initiationChance = sPlayerbotAIConfig.llmBotInitiateChance;   // Chance to initiate conversation
+    uint32 minCooldown = sPlayerbotAIConfig.llmBotInitiateCooldown;    // Minimum time in seconds between initiations
+    uint32 guildChance = sPlayerbotAIConfig.llmBotInitiateGuild;       // Chance to choose guild chat when in a group
+
+    // Check personal initiation cooldown
+    if (urand(0, 100) >= (initiationChance * 100) || (now - lastChat < minCooldown))
+        return;
+
+	// Start with a default chat type
+    uint32 msg_type = CHAT_MSG_SAY;
+
+	// Guild chat check
+	if (bot->GetGuildId())
+	{
+		uint32 guildId = bot->GetGuildId();
+		
+		// Only consider guild chat if not on guild cooldown
+		if (!initiateChatGuildCooldowns[guildId] || (now - initiateChatGuildCooldowns[guildId] >= minCooldown))
+		{
+			if (Guild* guild = sGuildMgr.GetGuildById(guildId))
+			{
+				for (auto& player : sRandomPlayerbotMgr.GetPlayers())
+				{
+					if (player.second->GetGuildId() == guildId)
+					{
+						if (urand(0, 100) < guildChance) // 90% chance to use guild chat
+						{
+							msg_type = CHAT_MSG_GUILD; // Select guild chat
+							initiateChatGuildCooldowns[guildId] = now; // Update guild cooldown
+							ZyriaDebug("DEBUG: Using guild chat for guild " + std::to_string(guildId));
+							break;  // Stop checking other guild members
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Group chat check (only if guild chat was not chosen)
+	if (msg_type == CHAT_MSG_SAY) // Guild chat wasn't selected
+	{
+		if (Group* group = bot->GetGroup())
+		{
+			uint32 groupId = group->GetId();
+			
+			if (!initiateChatGroupCooldowns[groupId] || (now - initiateChatGroupCooldowns[groupId] >= minCooldown))
+			{
+				msg_type = group->IsRaidGroup() ? CHAT_MSG_RAID : CHAT_MSG_PARTY;
+				initiateChatGroupCooldowns[groupId] = now; // Update group cooldown
+				ZyriaDebug("DEBUG: Using " + std::string(msg_type == CHAT_MSG_RAID ? "RAID" : "PARTY") + " chat for group " + std::to_string(groupId));
+			}
+		}
+	}
+
+    // Abort if no valid chat type was determined
+    if (msg_type == CHAT_MSG_SAY)
+        return;
+
+    // Send the message
+    QueueChatResponse(
+        msg_type,                   // type
+        bot->GetObjectGuid(),       // guid1
+        bot->GetObjectGuid(),       // guid2
+        "[Initiate Conversation]",  // msg
+        "",                         // chanName
+        bot->GetName(),             // name
+        true                        // delay
+    );
+
+    // Update the personal cooldown
+    GetAiObjectContext()->GetValue<time_t>("last said", "chat")->Set(now);
+    ZyriaDebug("PlayerbotAI: Initiated conversation by bot: " + std::string(bot->GetName()));
+}
+
 void PlayerbotAI::HandleTeleportAck()
 {
     if (IsRealPlayer() && bot->IsBeingTeleportedFar())
@@ -1595,7 +1698,7 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
             bool isAiChat = sPlayerbotAIConfig.llmEnabled > 0 && (HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3);
 
             if (isAiChat && (lang == LANG_ADDON || message.find("d:") == 0))
-                return;
+				return;
 
             if (guid1 != bot->GetObjectGuid()) // do not reply to self
             {
@@ -1621,67 +1724,143 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
                 }
 
                 bool isMentioned = message.find(bot->GetName()) != std::string::npos;
-                
 
                 ChatChannelSource chatChannelSource = GetChatChannelSource(bot, msgtype, chanName);
 
-                if (!isAiChat || isFromFreeBot)
-                {
-                    // random bot speaks, chat CD
-                    if ((isFromFreeBot || isAiChat) && isPaused)
-                        return;
+				// First, check the "paused" condition based on the mode.
+				if (sPlayerbotAIConfig.llmUseZyriaServer)
+				{
+					// When using the Python server, only non-AI bot chat gets cooldown.
+					if (!isAiChat && isPaused)
+						return;
+				}
+				else
+				{
+					// Without the Python server, cooldown applies if either free-bot or AI chat.
+					if ((isFromFreeBot || isAiChat) && isPaused)
+						return;
+				}
 
-                    // BG: react only if mentioned or if not channel and real player spoke
-                    if (bot->InBattleGround() && !(isMentioned || (msgtype != CHAT_MSG_CHANNEL && !isFromFreeBot)))
-                        return;
+				// Now, if the message is from a non-AI bot or from a free bot, apply common validations.
+				if (!isAiChat || isFromFreeBot)
+				{
+					// 1. In battlegrounds, only react if mentioned or if not a channel message from a real player.
+					if (bot->InBattleGround() && !(isMentioned || (msgtype != CHAT_MSG_CHANNEL && !isFromFreeBot)))
+						return;
 
-                    if (HasRealPlayerMaster() && guid1 != GetMaster()->GetObjectGuid())
-                        return;
+					// 2. For non-Python mode, only react if the master is correct.
+					if (!sPlayerbotAIConfig.llmUseZyriaServer && HasRealPlayerMaster() && guid1 != GetMaster()->GetObjectGuid())
+						return;
 
-                    if (lang == LANG_ADDON)
-                        return;
+					// 3. Do not process addon messages.
+					if (lang == LANG_ADDON)
+						return;
 
-                    if (boost::algorithm::istarts_with(message, sPlayerbotAIConfig.toxicLinksPrefix)
-                        && (GetChatHelper()->ExtractAllItemIds(message).size() > 0 || GetChatHelper()->ExtractAllQuestIds(message).size() > 0)
-                        && sPlayerbotAIConfig.toxicLinksRepliesChance)
-                    {
-                        if (urand(0, 50) > 0 || urand(1, 100) > sPlayerbotAIConfig.toxicLinksRepliesChance)
-                        {
-                            return;
-                        }
-                    }
-                    else if ((GetChatHelper()->ExtractAllItemIds(message).count(19019) && sPlayerbotAIConfig.thunderfuryRepliesChance))
-                    {
-                        if (urand(0, 60) > 0 || urand(1, 100) > sPlayerbotAIConfig.thunderfuryRepliesChance)
-                        {
-                            return;
-                        }
-                    }
-                    else
-                    {
-                        if (isFromFreeBot && urand(0, 20))
-                            return;
+					// 4. Check for toxic links.
+					if (boost::algorithm::istarts_with(message, sPlayerbotAIConfig.toxicLinksPrefix) &&
+						((GetChatHelper()->ExtractAllItemIds(message).size() > 0) ||
+						 (GetChatHelper()->ExtractAllQuestIds(message).size() > 0)) &&
+						 sPlayerbotAIConfig.toxicLinksRepliesChance)
+					{
+						if (urand(0, 50) > 0 || urand(1, 100) > sPlayerbotAIConfig.toxicLinksRepliesChance)
+							return;
+					}
+					// 5. Check for Thunderfury.
+					else if (GetChatHelper()->ExtractAllItemIds(message).count(19019) &&
+							 sPlayerbotAIConfig.thunderfuryRepliesChance)
+					{
+						if (urand(0, 60) > 0 || urand(1, 100) > sPlayerbotAIConfig.thunderfuryRepliesChance)
+							return;
+					}
+					// 6. For non-Python LLM or freebots not associated with real players, run extra randomness checks.
+					else if (!sPlayerbotAIConfig.llmUseZyriaServer || !HasPlayerRelation())
+					{
+						if (isFromFreeBot && urand(0, 20))
+							return;
 
-                        if (msgtype == CHAT_MSG_GUILD && (!sPlayerbotAIConfig.guildRepliesRate || urand(1, 100) >= sPlayerbotAIConfig.guildRepliesRate))
-                            return;
+						if (msgtype == CHAT_MSG_GUILD &&
+							(!sPlayerbotAIConfig.guildRepliesRate || urand(1, 100) >= sPlayerbotAIConfig.guildRepliesRate))
+							return;
 
-                        if (!isFromFreeBot)
-                        {
-                            if (!isMentioned && urand(0, 4))
-                                return;
-                        }
-                        else
-                        {
-                            if (urand(0, 20 + 10 * isMentioned))
-                                return;
-                        }
-                    }
-                }
+						if (!isFromFreeBot)
+						{
+							if (!isMentioned && urand(0, 4))
+								return;
+						}
+						else
+						{
+							if (urand(0, 20 + 10 * isMentioned))
+								return;
+						}
+					}
+				}
+				// 7. For Python LLM server allow bots associated with real players to have real conversations
+				if (isAiChat && sPlayerbotAIConfig.llmUseZyriaServer && HasPlayerRelation())
+				{
+					PlayerbotAI* ai = bot->GetPlayerbotAI();
+					ChatChannelSource chatChannelSource = ai->GetChatChannelSource(bot, msgtype, chanName);
 
-                QueueChatResponse(msgtype, guid1, ObjectGuid(), message, chanName, name, isAiChat);
-                GetAiObjectContext()->GetValue<time_t>("last said", "chat")->Set(time(0) + urand(5, 25));
+					bool targetIsRealPlayer = false;
+					Player* target = sObjectMgr.GetPlayer(ObjectGuid());
+					if (target && target->isRealPlayer())
+						targetIsRealPlayer = true;
 
-                return;
+					std::string llmChannel;
+
+					if (!sPlayerbotAIConfig.llmGlobalContext)
+						llmChannel = ((chatChannelSource == ChatChannelSource::SRC_WHISPER)
+										? name : std::to_string(chatChannelSource));
+
+					std::string botName = bot->GetName();
+					std::string llmConversationChannel = llmChannel + botName;
+
+					uint32 botToBotMaxResponses = sPlayerbotAIConfig.llmBotToBotMaxResponses;
+					uint32 botToBotResetTime = sPlayerbotAIConfig.llmBotToBotResetTime;
+
+					std::lock_guard<std::mutex> lock(ai->chatMutex);  // Lock only for this bot
+
+					// Check if enough time has passed to reset the response count
+					auto now = std::chrono::steady_clock::now();
+					if (ai->conversationReplyCount[llmConversationChannel] > 0 &&
+						now - ai->lastMessageTime[llmConversationChannel] > std::chrono::seconds(botToBotResetTime))
+					{
+						ZyriaDebug("DEBUG: Resetting response count for " + botName + " in " + llmConversationChannel);
+						ai->conversationReplyCount[llmConversationChannel] = 0;
+					}
+
+					// Check if the bot has exceeded the max responses, unless speaking to real player
+					if (!targetIsRealPlayer && ai->conversationReplyCount[llmConversationChannel] >= botToBotMaxResponses)
+					{
+						ZyriaDebug("DEBUG: Breaking recursion loop for " + botName
+								+ " using conversation channel: " + llmConversationChannel);
+						return;  // Prevents recursion loops
+					}
+
+					// Increment response count and update last message time
+					ai->conversationReplyCount[llmConversationChannel]++;
+					ai->lastMessageTime[llmConversationChannel] = now;
+
+					ZyriaDebug("DEBUG: PlayerbotAI queuing chat response for "
+							+ botName + " using conversation channel: " + llmConversationChannel);
+
+
+					//reset chat intitiation cooldowns
+					time_t resetTime = time(0);
+					if (msgtype == CHAT_MSG_GUILD && bot->GetGuildId())
+					{
+						initiateChatGuildCooldowns[bot->GetGuildId()] = resetTime;
+					}
+					else if (msgtype == CHAT_MSG_PARTY || msgtype == CHAT_MSG_RAID)
+					{		
+						Group* group = bot->GetGroup();
+						initiateChatGroupCooldowns[group->GetId()] = resetTime;
+					}
+				}
+
+				QueueChatResponse(msgtype, guid1, ObjectGuid(), message, chanName, name, isAiChat);
+				GetAiObjectContext()->GetValue<time_t>("last said", "chat")->Set(time(0) + urand(5, 25));
+
+				return;
             }
             else if (isAiChat)
             {
@@ -1690,12 +1869,13 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
                 std::string llmChannel;
 
                 if (!sPlayerbotAIConfig.llmGlobalContext)
-                    llmChannel = ((chatChannelSource == ChatChannelSource::SRC_WHISPER) ? name : std::to_string(chatChannelSource));
+                    llmChannel = ((chatChannelSource == ChatChannelSource::SRC_WHISPER)
+									? name : std::to_string(chatChannelSource));
 
                 AiObjectContext* context = aiObjectContext;
                 std::string llmContext = AI_VALUE(std::string, "manual string::llmcontext" + llmChannel);
-                llmContext = llmContext + " " + bot->GetName() + ":" + message;
-                PlayerbotLLMInterface::LimitContext(llmContext, llmContext.size());
+				llmContext = llmContext + " " + bot->GetName() + ":" + message;
+				PlayerbotLLMInterface::LimitContext(llmContext, llmContext.size());
                 SET_AI_VALUE(std::string, "manual string::llmcontext" + llmChannel, llmContext);
             }
         }
@@ -5636,7 +5816,6 @@ bool PlayerbotAI::ChannelHasRealPlayer(std::string channelName)
 
     return false;
 }
-
 /*
 enum ActivityType
 {
@@ -7337,13 +7516,37 @@ std::list<Unit*> PlayerbotAI::GetAllHostileNPCNonPetUnitsAroundWO(WorldObject* w
 
 void PlayerbotAI::SendDelayedPacket(WorldSession* session, futurePackets futPackets)
 {
+    static std::atomic<int> responseCount = 0;  // Tracks total responses across threads
+
     std::thread t([session, futPacket = std::move(futPackets)]() mutable {
-        for (auto& delayedPacket : futPacket.get())
-        {
-            std::unique_ptr<WorldPacket> packetPtr(new WorldPacket(delayedPacket.first));
-            session->QueuePacket(std::move(packetPtr));
-            if (delayedPacket.second)
-                std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
+        ZyriaDebug("SendDelayedPacket: Thread started. futPacket valid? " + std::to_string(futPacket.valid()));
+
+        try {
+            auto packets = futPacket.get();
+            ZyriaDebug("SendDelayedPacket: Received packets: " + std::to_string(packets.size()));
+
+            for (auto& delayedPacket : packets)
+            {
+                std::unique_ptr<WorldPacket> packetPtr(new WorldPacket(delayedPacket.first));
+                if (session)
+                {
+                    session->QueuePacket(std::move(packetPtr));
+                    ZyriaDebug("SendDelayedPacket: Queued packet.");
+
+                    // Track response count
+                    responseCount++;
+                    ZyriaDebug("DEBUG: Response count: " + std::to_string(responseCount));
+                }
+                else
+                {
+                    ZyriaDebug("ERROR: SendDelayedPacket: session is NULL!");
+                }
+
+                if (delayedPacket.second)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
+            }
+        } catch (const std::exception& e) {
+            ZyriaDebug("ERROR:SendDelayedPacket: Exception occurred: " + static_cast<std::string>(e.what()));
         }
     });
 
@@ -7354,13 +7557,31 @@ void PlayerbotAI::ReceiveDelayedPacket(futurePackets futPackets)
 {
     PacketHandlingHelper* handler = &botOutgoingPacketHandlers;
     std::thread t([handler, futPackets = std::move(futPackets)]() mutable {
-        for (auto& delayedPacket : futPackets.get())
-        {            
-            handler->AddPacket(delayedPacket.first);
-            if(delayedPacket.second)
-                std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
+        ZyriaDebug("ReceiveDelayedPacket: Thread started. futPackets valid? " + std::to_string(futPackets.valid()));
+
+        try {
+            auto packets = futPackets.get();
+            ZyriaDebug("ReceiveDelayedPacket: Received packets: " + std::to_string(packets.size()));
+
+            for (auto& delayedPacket : packets)
+            {
+                if (handler)
+                {
+                    handler->AddPacket(delayedPacket.first);
+                    ZyriaDebug("ReceiveDelayedPacket: Added packet.");
+                }
+                else
+                {
+                    ZyriaDebug("ERROR: ReceiveDelayedPacket: handler is NULL!");
+                }
+
+                if (delayedPacket.second)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
+            }
+        } catch (const std::exception& e) {
+            ZyriaDebug("ERROR:ReceiveDelayedPacket: Exception occurred: " + static_cast<std::string>(e.what()));
         }
-        });
+    });
 
     t.detach();
 }

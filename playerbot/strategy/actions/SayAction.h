@@ -2,6 +2,7 @@
 
 #include "playerbot/strategy/Action.h"
 #include "QuestAction.h"
+#include <boost/json.hpp>
 
 namespace ai
 {
@@ -43,4 +44,5 @@ namespace ai
         static bool SendGeneralResponse(Player* bot, ChatChannelSource chatChannelSource, std::string responseMessage, std::string name);
         static std::string GenerateReplyMessage(Player* bot, std::string incomingMessage, uint32 guid1, std::string name);
     };
+	boost::json::object GetPartyMembersJson(Player* bot);
 }

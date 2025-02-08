@@ -21,7 +21,6 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <netinet/in.h>
-#include <cstring>
 #include <fcntl.h>
 #include <errno.h>
 #include <thread>
@@ -29,6 +28,23 @@
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotTextMgr.h"
 #endif
+
+#include <vector>
+#include "ZyriaDebug.h"
+
+// Helper function to trim whitespace from a string
+/*
+static std::string trim(const std::string& str) {
+    std::string trimmed = str;
+    trimmed.erase(trimmed.begin(), std::find_if(trimmed.begin(), trimmed.end(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }));
+    trimmed.erase(std::find_if(trimmed.rbegin(), trimmed.rend(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }).base(), trimmed.end());
+    return trimmed;
+}
+*/
 
 std::string PlayerbotLLMInterface::SanitizeForJson(const std::string& input) {
     std::string sanitized;
@@ -127,7 +143,8 @@ inline std::string RecvWithTimeout(int sock, int timeout_seconds, int& bytesRead
     }
 
 std::string PlayerbotLLMInterface::Generate(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines) {
-    bool debug = !debugLines.empty();
+	bool debug = !debugLines.empty();
+	//ZyriaDebug("PlayerbotLLMInterface sent prompt: " + prompt);
 
     if (sPlayerbotLLMInterface.generationCount > maxGenerations)
     {
@@ -369,6 +386,36 @@ inline std::string extractBeforePattern(const std::string& content, const std::s
 
 inline std::vector<std::string> splitResponse(const std::string& response, const std::string& splitPattern) {
     std::vector<std::string> result;
+    
+    // Special case: if using `|`, consume it completely
+    if (splitPattern == "\\|") {
+        std::regex pattern(splitPattern);
+        std::sregex_token_iterator iter(response.begin(), response.end(), pattern, -1);
+        std::sregex_token_iterator end;
+        for (; iter != end; ++iter) {
+            if (!iter->str().empty())  // Prevent empty splits
+                result.push_back(iter->str());
+        }
+    } 
+    else {
+        // Default behavior: Keep the split character (like punctuation)
+        std::regex pattern(splitPattern);
+        std::sregex_token_iterator iter(response.begin(), response.end(), pattern, {-1, 0});
+        std::sregex_token_iterator end;
+        for (; iter != end; ++iter) {
+            result.push_back(iter->str());
+        }
+    }
+
+    // If result is empty, return the original string to prevent loss of text
+    if (result.empty())
+        result.push_back(response);
+
+    return result;
+}
+/*
+inline std::vector<std::string> splitResponse(const std::string& response, const std::string& splitPattern) {
+    std::vector<std::string> result;
     std::regex pattern(splitPattern);
     std::smatch match;
     
@@ -383,6 +430,7 @@ inline std::vector<std::string> splitResponse(const std::string& response, const
 
     return result;
 }
+*/
 
 std::vector<std::string> PlayerbotLLMInterface::ParseResponse(const std::string& response, const std::string& startPattern, const std::string& endPattern, const std::string& deletePattern, const std::string& splitPattern, std::vector<std::string>& debugLines)
 {
@@ -413,8 +461,11 @@ std::vector<std::string> PlayerbotLLMInterface::ParseResponse(const std::string&
         debugLines.push_back("delete pattern:" + deletePattern);
     }
 
-    std::regex regexPattern(deletePattern);
-    actualResponse = std::regex_replace(actualResponse, regexPattern, "");
+	if (!deletePattern.empty())
+	{
+		std::regex regexPattern(deletePattern);
+		actualResponse = std::regex_replace(actualResponse, regexPattern, "");
+	}
 
     if (debug)
     {
@@ -430,24 +481,130 @@ std::vector<std::string> PlayerbotLLMInterface::ParseResponse(const std::string&
     return responses;
 }
 
+/*
 void PlayerbotLLMInterface::LimitContext(std::string& context, int currentLength)
 {
-    if (sPlayerbotAIConfig.llmContextLength && (uint32)currentLength > sPlayerbotAIConfig.llmContextLength)
-    {
-        uint32 cutNeeded = currentLength - sPlayerbotAIConfig.llmContextLength;
+    if (!sPlayerbotAIConfig.llmContextLength)
+        return;
 
-        if (cutNeeded > context.size())
-            context.clear();
-        else
+    uint32_t maxLen = sPlayerbotAIConfig.llmContextLength;
+    if (static_cast<uint32_t>(currentLength) <= maxLen)
+        return;
+
+    uint32_t cutNeeded = currentLength - maxLen;
+
+    if (cutNeeded >= context.size())
+    {
+        ZyriaDebug("DEBUG: LimitContext: context cleared (cutNeeded >= context.size()).");
+        context.clear();
+        return;
+    }
+
+    // Find dialog boundaries
+    ZyriaDebug("DEBUG: LimitContext: Attempting to trim context at dialog boundary...");
+    std::regex dialogRegex(R"((?:^|\s)([A-Za-z]+):(\S))"); // Matches "Name:word" with leading space or start of string
+    std::smatch match;
+    std::string::const_iterator searchStart = context.cbegin();
+
+    size_t trimPos = std::string::npos;
+    while (std::regex_search(searchStart, context.cend(), match, dialogRegex))
+    {
+        size_t matchStart = static_cast<size_t>(match.position());
+        size_t absolutePos = static_cast<size_t>(searchStart - context.cbegin()) + matchStart;
+
+        ZyriaDebug("DEBUG: Found dialog line at absolutePos = " + std::to_string(absolutePos) + ", match = '" + match.str() + "'");
+
+        if (absolutePos >= cutNeeded)
         {
-            uint32 cutPosition = 0;
-            for (auto& c : context)
-            {
-                cutPosition++;
-                if (cutPosition >= cutNeeded && (c == ' ' || c == '.'))
-                    break;
-            }
-            context = context.substr(cutPosition);
+            trimPos = absolutePos;
+            break;
         }
+
+        searchStart = match.suffix().first; // Move past the current match
+    }
+
+    if (trimPos == std::string::npos)
+    {
+        // If no valid dialog boundary is found, clear the context (this should never happen)
+        ZyriaDebug("DEBUG: No valid dialog boundary found. Context cleared.");
+        context.clear();
+    }
+    else
+    {
+        // Trim the context at the identified boundary
+        size_t oldSize = context.size();
+        context = context.substr(trimPos);
+
+        ZyriaDebug("DEBUG: Context trimmed at dialog boundary (trimPos = " + std::to_string(trimPos) + "). Old size: " +
+                  std::to_string(oldSize) + ", new size: " + std::to_string(context.size()) +
+                  ", new text: '" + context + "'");
+    }
+}
+*/
+
+void PlayerbotLLMInterface::LimitContext(std::string& context, int currentLength)
+{
+    if (!sPlayerbotAIConfig.llmContextLength)
+        return;
+
+    uint32_t maxLen = sPlayerbotAIConfig.llmContextLength;
+    uint32_t trimPercentage = sPlayerbotAIConfig.llmContextTrimAmount;
+
+    // Only proceed if the context exceeds maxLen
+    if (static_cast<uint32_t>(currentLength) <= maxLen)
+        return;
+
+    // Calculate the minimum trim size as a percentage of maxLen
+    uint32_t trimSize = static_cast<uint32_t>(maxLen * (static_cast<float>(trimPercentage) / 100.0f));
+    uint32_t cutNeeded = currentLength - maxLen;
+
+    // Ensure the cut size is at least trimSize
+    uint32_t cutSize = std::max(cutNeeded, trimSize);
+
+    if (cutSize >= context.size())
+    {
+        //ZyriaDebug("DEBUG: LimitContext: context cleared (cutSize >= context.size()).");
+        context.clear();
+        return;
+    }
+
+    // Find dialog boundaries
+    //ZyriaDebug("DEBUG: LimitContext: Attempting to trim context at dialog boundary...");
+    std::regex dialogRegex(R"((?:^|\s)([A-Za-z]+):(\S))"); // Matches "Name:word" with leading space or start of string
+    std::smatch match;
+    std::string::const_iterator searchStart = context.cbegin();
+
+    size_t trimPos = std::string::npos;
+    while (std::regex_search(searchStart, context.cend(), match, dialogRegex))
+    {
+        size_t matchStart = static_cast<size_t>(match.position());
+        size_t absolutePos = static_cast<size_t>(searchStart - context.cbegin()) + matchStart;
+
+        //ZyriaDebug("DEBUG: Found dialog line at absolutePos = " + std::to_string(absolutePos) + ", match = '" + match.str() + "'");
+
+        if (absolutePos >= cutSize)
+        {
+            trimPos = absolutePos;
+            break;
+        }
+
+        searchStart = match.suffix().first; // Move past the current match
+    }
+
+    if (trimPos == std::string::npos)
+    {
+        // If no valid dialog boundary is found, clear the context
+        //ZyriaDebug("DEBUG: No valid dialog boundary found. Context cleared.");
+        context.clear();
+    }
+    else
+    {
+        // Trim the context at the identified boundary
+        size_t oldSize = context.size();
+        context = context.substr(trimPos);
+
+        //ZyriaDebug("DEBUG: Context trimmed at dialog boundary (trimPos = " + std::to_string(trimPos) + "). Old size: " +
+        //          std::to_string(oldSize) + ", new size: " + std::to_string(context.size()) +
+        //          ", new text: '" + context + "'");
     }
 }

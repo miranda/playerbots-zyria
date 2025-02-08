@@ -93,7 +93,9 @@ namespace ai
         static std::vector<std::string> splitString(const std::string& text, const std::string& delimiter);
         static std::vector<std::string> findSubstringsBetween(const std::string& input, const std::string& start, const std::string& end, bool includeDelimiters = false);
         static void replaceSubstring(std::string& str, const std::string& oldStr, const std::string& newStr);
-
+	
+		static std::string getGuildName(Unit* unit);
+		static std::vector<std::string> getGuildMembers(Player* bot);
     private:
         static std::map<std::string, uint32> consumableSubClasses;
         static std::map<std::string, uint32> tradeSubClasses;
