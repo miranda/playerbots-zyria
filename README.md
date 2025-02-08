@@ -1,4 +1,8 @@
 # Playerbots fork modified for Zyria LLM Server support
+This is a modified version of the Playerbots module designed to integrate customized LLM-based chat using the Python-based Zyria LLM Server.
+It adds native support for the Zyria API, which is optimized for realistic playerbot conversations, while still retaining compatibility with other generic LLM APIs supported by the official project.
+
+For the original Playerbots module, see: [Official Repository](https://github.com/cmangos/playerbots).
 
 # Playerbots
 Bot AI Core from ike3 for cmangos classic, tbc and wotlk
