@@ -1,3 +1,5 @@
+# Playerbots fork modified for Zyria LLM Server support
+
 # Playerbots
 Bot AI Core from ike3 for cmangos classic, tbc and wotlk
 
