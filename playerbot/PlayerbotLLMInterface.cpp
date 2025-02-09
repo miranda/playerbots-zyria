@@ -30,21 +30,9 @@
 #endif
 
 #include <vector>
+#include <mutex>
+#include "strategy/AiObjectContext.h"
 #include "ZyriaDebug.h"
-
-// Helper function to trim whitespace from a string
-/*
-static std::string trim(const std::string& str) {
-    std::string trimmed = str;
-    trimmed.erase(trimmed.begin(), std::find_if(trimmed.begin(), trimmed.end(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    }));
-    trimmed.erase(std::find_if(trimmed.rbegin(), trimmed.rend(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    }).base(), trimmed.end());
-    return trimmed;
-}
-*/
 
 std::string PlayerbotLLMInterface::SanitizeForJson(const std::string& input) {
     std::string sanitized;
@@ -479,6 +467,18 @@ std::vector<std::string> PlayerbotLLMInterface::ParseResponse(const std::string&
         debugLines.insert(debugLines.end(), responses.begin(), responses.end());
 
     return responses;
+}
+
+void PlayerbotLLMInterface::UpdateContext(AiObjectContext* context, std::string& llmContext, const std::string& playerName, const std::string& msg, const std::string& key)
+{
+    static std::mutex contextMutex;
+    std::lock_guard<std::mutex> lock(contextMutex);
+
+    llmContext += " " + playerName + ":" + msg;
+    LimitContext(llmContext, llmContext.size());
+
+    if (context) // Ensure context is valid before using
+        SET_AI_VALUE(std::string, "manual string::" + key, llmContext);
 }
 
 /*

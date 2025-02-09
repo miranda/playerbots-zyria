@@ -1176,7 +1176,7 @@ void PlayerbotAI::InitiateChat()
 						{
 							msg_type = CHAT_MSG_GUILD; // Select guild chat
 							initiateChatGuildCooldowns[guildId] = now; // Update guild cooldown
-							ZyriaDebug("DEBUG: Using guild chat for guild " + std::to_string(guildId));
+							ZyriaDebug("Using guild chat for guild " + std::to_string(guildId));
 							break;  // Stop checking other guild members
 						}
 					}
@@ -1196,7 +1196,7 @@ void PlayerbotAI::InitiateChat()
 			{
 				msg_type = group->IsRaidGroup() ? CHAT_MSG_RAID : CHAT_MSG_PARTY;
 				initiateChatGroupCooldowns[groupId] = now; // Update group cooldown
-				ZyriaDebug("DEBUG: Using " + std::string(msg_type == CHAT_MSG_RAID ? "RAID" : "PARTY") + " chat for group " + std::to_string(groupId));
+				ZyriaDebug("Using " + std::string(msg_type == CHAT_MSG_RAID ? "RAID" : "PARTY") + " chat for group " + std::to_string(groupId));
 			}
 		}
 	}
@@ -1800,10 +1800,15 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
 					PlayerbotAI* ai = bot->GetPlayerbotAI();
 					ChatChannelSource chatChannelSource = ai->GetChatChannelSource(bot, msgtype, chanName);
 
-					bool targetIsRealPlayer = false;
-					Player* target = sObjectMgr.GetPlayer(ObjectGuid());
-					if (target && target->isRealPlayer())
-						targetIsRealPlayer = true;
+					bool senderIsRealPlayer = false;
+					Player* sender = sObjectMgr.GetPlayer(guid1);  // Get the sender's player object
+
+					if (sender && sender->isRealPlayer())
+					{
+						senderIsRealPlayer = true;
+						std::string senderName = sender->GetName();
+						ZyriaDebug("Message received from real player: " + senderName);
+					}
 
 					std::string llmChannel;
 
@@ -1824,14 +1829,14 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
 					if (ai->conversationReplyCount[llmConversationChannel] > 0 &&
 						now - ai->lastMessageTime[llmConversationChannel] > std::chrono::seconds(botToBotResetTime))
 					{
-						ZyriaDebug("DEBUG: Resetting response count for " + botName + " in " + llmConversationChannel);
+						ZyriaDebug("Resetting response count for " + botName + " in " + llmConversationChannel);
 						ai->conversationReplyCount[llmConversationChannel] = 0;
 					}
 
-					// Check if the bot has exceeded the max responses, unless speaking to real player
-					if (!targetIsRealPlayer && ai->conversationReplyCount[llmConversationChannel] >= botToBotMaxResponses)
+					// Check if the bot has exceeded the max responses, unless speaking to a real player
+					if (!senderIsRealPlayer && ai->conversationReplyCount[llmConversationChannel] >= botToBotMaxResponses)
 					{
-						ZyriaDebug("DEBUG: Breaking recursion loop for " + botName
+						ZyriaDebug("Breaking recursion loop for " + botName
 								+ " using conversation channel: " + llmConversationChannel);
 						return;  // Prevents recursion loops
 					}
@@ -1840,9 +1845,8 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
 					ai->conversationReplyCount[llmConversationChannel]++;
 					ai->lastMessageTime[llmConversationChannel] = now;
 
-					ZyriaDebug("DEBUG: PlayerbotAI queuing chat response for "
+					ZyriaDebug("PlayerbotAI queuing chat response for "
 							+ botName + " using conversation channel: " + llmConversationChannel);
-
 
 					//reset chat intitiation cooldowns
 					time_t resetTime = time(0);
@@ -1862,7 +1866,7 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
 
 				return;
             }
-            else if (isAiChat)
+			else if (isAiChat)
             {
                 ChatChannelSource chatChannelSource = bot->GetPlayerbotAI()->GetChatChannelSource(bot, msgtype, chanName);
 
@@ -1874,9 +1878,10 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
 
                 AiObjectContext* context = aiObjectContext;
                 std::string llmContext = AI_VALUE(std::string, "manual string::llmcontext" + llmChannel);
-				llmContext = llmContext + " " + bot->GetName() + ":" + message;
-				PlayerbotLLMInterface::LimitContext(llmContext, llmContext.size());
-                SET_AI_VALUE(std::string, "manual string::llmcontext" + llmChannel, llmContext);
+			//	llmContext = llmContext + " " + bot->GetName() + ":" + message;
+			//	PlayerbotLLMInterface::LimitContext(llmContext, llmContext.size());
+            //  SET_AI_VALUE(std::string, "manual string::llmcontext" + llmChannel, llmContext);
+				PlayerbotLLMInterface::UpdateContext(context, llmContext, bot->GetName(), message, llmChannel);
             }
         }
 
@@ -7535,18 +7540,18 @@ void PlayerbotAI::SendDelayedPacket(WorldSession* session, futurePackets futPack
 
                     // Track response count
                     responseCount++;
-                    ZyriaDebug("DEBUG: Response count: " + std::to_string(responseCount));
+                    ZyriaDebug("Response count: " + std::to_string(responseCount));
                 }
                 else
                 {
-                    ZyriaDebug("ERROR: SendDelayedPacket: session is NULL!");
+                    ZyriaDebug("SendDelayedPacket: session is NULL!", "ERROR");
                 }
 
                 if (delayedPacket.second)
                     std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
             }
         } catch (const std::exception& e) {
-            ZyriaDebug("ERROR:SendDelayedPacket: Exception occurred: " + static_cast<std::string>(e.what()));
+            ZyriaDebug("SendDelayedPacket: Exception occurred: " + static_cast<std::string>(e.what()), "ERROR");
         }
     });
 
@@ -7572,14 +7577,14 @@ void PlayerbotAI::ReceiveDelayedPacket(futurePackets futPackets)
                 }
                 else
                 {
-                    ZyriaDebug("ERROR: ReceiveDelayedPacket: handler is NULL!");
+                    ZyriaDebug("ReceiveDelayedPacket: handler is NULL!", "ERROR");
                 }
 
                 if (delayedPacket.second)
                     std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
             }
         } catch (const std::exception& e) {
-            ZyriaDebug("ERROR:ReceiveDelayedPacket: Exception occurred: " + static_cast<std::string>(e.what()));
+            ZyriaDebug("ReceiveDelayedPacket: Exception occurred: " + static_cast<std::string>(e.what()), "ERROR");
         }
     });
 

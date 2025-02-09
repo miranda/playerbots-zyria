@@ -12,6 +12,7 @@ public:
 
     static std::vector<std::string> ParseResponse(const std::string& response, const std::string& startPattern, const std::string& endPattern, const std::string& deletePattern, const std::string& splitPattern, std::vector<std::string>& debugLines);
 
+	static void UpdateContext(AiObjectContext* context, std::string& llmContext, const std::string& playerName, const std::string& msg, const std::string& key);
     static void LimitContext(std::string& context, int currentLength);
 private:
     std::atomic<int> generationCount = 0;

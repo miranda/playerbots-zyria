@@ -500,13 +500,15 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 
         std::string llmContext = AI_VALUE(std::string, "manual string::llmcontext" + llmChannel);
         std::string botName = bot->GetName();
-
 		if (player)
         {
 			std::string playerName = player->GetName();
+			ZyriaDebug("LLM message from " + playerName + "'" + msg + "' is using llmChannel: " + llmChannel);
+			bool makeLLMRequest = false;
 
             if ((initiateChat || player != bot) && (player->isRealPlayer() || (sPlayerbotAIConfig.llmBotToBotChatChance && urand(0, 99) < sPlayerbotAIConfig.llmBotToBotChatChance)))
 			{
+				makeLLMRequest = true;
                 std::map<std::string, std::string> placeholders;
 
 				GetAIChatPlaceholders(placeholders, bot, player);
@@ -579,7 +581,7 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 					if (sourceName[chatChannelSource] == "in party chat")
 					{
 						channelMembersJson = GetPartyMembersJson(bot);
-						ZyriaDebug("DEBUG: Party members: " + boost::json::serialize(channelMembersJson));						
+						ZyriaDebug("Party members: " + boost::json::serialize(channelMembersJson));						
 					}
 					else if (sourceName[chatChannelSource] == "in guild chat")
 					{
@@ -588,22 +590,22 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 						{
 							channelMembersJson[member] = boost::json::object();
 						}
-						ZyriaDebug("DEBUG: Guild members: " + boost::json::serialize(channelMembersJson));						
+						ZyriaDebug("Guild members: " + boost::json::serialize(channelMembersJson));						
 					}
 					jsonData["channel_members"] = std::move(channelMembersJson);
 					jsonData["expansion"] = sPlayerbotAIConfig.llmExpansionSelect;
 					
 					uint32 currentLength = llmContext.size();
 					PlayerbotLLMInterface::LimitContext(llmContext, currentLength);
-					jsonData["context"]       = PlayerbotLLMInterface::SanitizeForJson(llmContext);
+					jsonData["context"] = PlayerbotLLMInterface::SanitizeForJson(llmContext);
 
 					if (!initiateChat)
 						jsonData["message"] = PlayerbotLLMInterface::SanitizeForJson(msg);
 
 					json = boost::json::serialize(jsonData);
 
-					ZyriaDebug("DEBUG: " + playerName + " is sending message: '" + msg + " to the LLM");
-					ZyriaDebug("DEBUG: Serialized JSON: " + json);
+					ZyriaDebug(playerName + " is sending message: '" + msg + " to the LLM");
+					ZyriaDebug("Serialized JSON: " + json);
 
 					endPattern = "\"";
 					deletePattern = "";
@@ -702,21 +704,20 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 
 				if (!futPackets.valid())
 				{
-					ZyriaDebug("ERROR: SayAction.cpp - futurePackets are invalid. Dropping response.");
+					ZyriaDebug("SayAction.cpp - futurePackets are invalid. Dropping response.", "ERROR");
 					return;
 				}
 
                 ai->SendDelayedPacket(session, std::move(futPackets));
             }
-            else if (player != bot || sPlayerbotAIConfig.llmBotToBotChatChance)
+			if (makeLLMRequest ? sPlayerbotAIConfig.llmUseZyriaServer		// add message to every bot's context or...
+							   : (player != bot || sPlayerbotAIConfig.llmBotToBotChatChance))	// original "else" logic
             {
                 if (msg.find("d:") != std::string::npos)
                     return;
 				
-				llmContext = llmContext + " " + playerName + ":" + msg;
-                PlayerbotLLMInterface::LimitContext(llmContext, llmContext.size());
+				PlayerbotLLMInterface::UpdateContext(ai->GetAiObjectContext(), llmContext, playerName, msg, llmChannel);
             }
-            SET_AI_VALUE(std::string, "manual string::llmcontext" + llmChannel, llmContext);
 
             return;
         }
