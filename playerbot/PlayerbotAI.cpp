@@ -1800,14 +1800,21 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
 					PlayerbotAI* ai = bot->GetPlayerbotAI();
 					ChatChannelSource chatChannelSource = ai->GetChatChannelSource(bot, msgtype, chanName);
 
-					bool senderIsRealPlayer = false;
-					Player* sender = sObjectMgr.GetPlayer(guid1);  // Get the sender's player object
+					std::string botName = bot->GetName();
+					std::string senderName;
 
-					if (sender && sender->isRealPlayer())
+					Player* sender = sObjectMgr.GetPlayer(guid1);  // Get the sender's player object
+					bool senderIsRealPlayer = false;
+
+					if (sender)
 					{
-						senderIsRealPlayer = true;
-						std::string senderName = sender->GetName();
-						ZyriaDebug("Message received from real player: " + senderName);
+						senderName = sender->GetName();
+						
+						if (sender->isRealPlayer())
+						{
+							senderIsRealPlayer = true;
+							ZyriaDebug("Message received from real player: " + senderName);
+						}
 					}
 
 					std::string llmChannel;
@@ -1816,8 +1823,9 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
 						llmChannel = ((chatChannelSource == ChatChannelSource::SRC_WHISPER)
 										? name : std::to_string(chatChannelSource));
 
-					std::string botName = bot->GetName();
-					std::string llmConversationChannel = llmChannel + botName;
+					// Create conversation tracking channel for both players
+					std::string llmConversationChannel = llmChannel + std::min(botName, senderName) + std::max(botName, senderName);
+					ZyriaDebug("Assigned bot " + botName + "conversation channel: " + llmConversationChannel);
 
 					uint32 botToBotMaxResponses = sPlayerbotAIConfig.llmBotToBotMaxResponses;
 					uint32 botToBotResetTime = sPlayerbotAIConfig.llmBotToBotResetTime;
@@ -1829,7 +1837,7 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
 					if (ai->conversationReplyCount[llmConversationChannel] > 0 &&
 						now - ai->lastMessageTime[llmConversationChannel] > std::chrono::seconds(botToBotResetTime))
 					{
-						ZyriaDebug("Resetting response count for " + botName + " in " + llmConversationChannel);
+						ZyriaDebug("Resetting response count for " + botName + " in conversation channel: " + llmConversationChannel);
 						ai->conversationReplyCount[llmConversationChannel] = 0;
 					}
 

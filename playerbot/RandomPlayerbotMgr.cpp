@@ -25,6 +25,8 @@
 #include "World/WorldState.h"
 #include "PlayerbotLoginMgr.h"
 
+#include <fstream>
+
 #ifndef MANGOSBOT_ZERO
 #ifdef CMANGOS
 #include "Arena/ArenaTeam.h"
@@ -584,7 +586,10 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 elapsed, bool minimal)
         onlineBotCount < maxAllowedBotCount ? "RandomPlayerbotMgr::Login" : "RandomPlayerbotMgr::UpdateAIInternal");
 
     if (time(nullptr) > (EventTimeSyncTimer + 30))
+	{
         SaveCurTime();
+		LogBotStatsLite();
+	}
 
     if (availableBotCount < maxAllowedBotCount && !sWorld.IsShutdowning())
     {
@@ -4048,4 +4053,43 @@ float RandomPlayerbotMgr::GetMetricDelta(botPerformanceMetric& metric) const
         return 0;
 
     return deltaMetric / metric.size();
+}
+
+void RandomPlayerbotMgr::LogBotStatsLite()
+{
+    static time_t lastLogTime = 0;  // 🔹 Keeps value across function calls
+    time_t now = time(nullptr);
+
+    if (now - lastLogTime < 120)  // 🔹 Skip if less than 2 minutes
+        return;
+
+    lastLogTime = now;  // 🔹 Update last log time
+
+    uint32 onlineBotCount = GetPlayerbotsAmount();
+    uint32 active = 0, afk = 0;
+
+    ForEachPlayerbot([&active, &afk](Player* bot)
+    {
+        if (bot->GetPlayerbotAI()->AllowActivity()) 
+            active++;
+
+        if (bot->isAFK()) 
+            afk++;
+    });
+
+    // 🔹 Open file safely (overwrite mode)
+    std::ofstream logFile("playerbot_stats.log", std::ios::out | std::ios::trunc);  
+    if (!logFile.is_open())  
+    {
+        sLog.outError("Failed to open playerbot_stats.log for writing!");
+        return;  // 🔹 Avoid writing to a closed file
+    }
+
+    // 🔹 Write stats
+    logFile << "Last updated: " << std::put_time(std::localtime(&now), "%Y-%m-%d %H:%M:%S") << std::endl;
+    logFile << "Playerbots online: " << onlineBotCount << std::endl;
+    logFile << "Playerbots active: " << active << std::endl;
+    logFile << "Playerbots AFK: " << afk << std::endl;
+
+    logFile.close();
 }

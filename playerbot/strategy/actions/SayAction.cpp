@@ -503,7 +503,7 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 		if (player)
         {
 			std::string playerName = player->GetName();
-			ZyriaDebug("LLM message from " + playerName + "'" + msg + "' is using llmChannel: " + llmChannel);
+			ZyriaDebug("LLM message from " + playerName + " to " + botName + ": \"" + msg + "\" using llmChannel: " + llmChannel);
 			bool makeLLMRequest = false;
 
             if ((initiateChat || player != bot) && (player->isRealPlayer() || (sPlayerbotAIConfig.llmBotToBotChatChance && urand(0, 99) < sPlayerbotAIConfig.llmBotToBotChatChance)))

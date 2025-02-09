@@ -220,6 +220,8 @@ public:
 
         //                   itemId,             buyout, count
         std::unordered_map < uint32, std::vector<AuctionEntry>> ahMirror;
+
+		void LogBotStatsLite();
 };
 
 #define sRandomPlayerbotMgr RandomPlayerbotMgr::instance()
