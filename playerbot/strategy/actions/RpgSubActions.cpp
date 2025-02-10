@@ -473,6 +473,7 @@ bool RpgAIChatAction::RequestNewLines()
 	std::string startPattern, endPattern, deletePattern, splitPattern;
 	startPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseStartPattern, placeholders);
 
+	ZyriaDebug("RPG sub action chat called", "DEBUG RPG");
 	if (sPlayerbotAIConfig.llmUseZyriaServer)
 	{
 		boost::json::object botDetails, unitDetails, jsonData;
