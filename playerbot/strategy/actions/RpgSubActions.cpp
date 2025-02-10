@@ -461,36 +461,35 @@ bool RpgAIChatAction::RequestNewLines()
         break;
     }
 
-    std::string postPrompt;
-
-    if (chatLine == 2)
-        postPrompt = "[<bot name> has to go. Say goodbye.]";
-
-    postPrompt += sPlayerbotAIConfig.llmPostPrompt;
-
     std::string json;
 	std::map<std::string, std::string> jsonFill;
 	std::string startPattern, endPattern, deletePattern, splitPattern;
 	startPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseStartPattern, placeholders);
 
-	ZyriaDebug("RPG sub action chat called", "DEBUG RPG");
+	std::string botName = bot->GetName();
+	std::string unitName = unit->GetName();
+    std::string postPrompt;
+
+    if (chatLine == 2)
+        postPrompt = "[<bot name> has to go. Say goodbye.]";
+
 	if (sPlayerbotAIConfig.llmUseZyriaServer)
 	{
+		ZyriaDebug("RPG AI chat action between bot " + botName + " and unit " + unitName, "DEBUG RPG");
 		boost::json::object botDetails, unitDetails, jsonData;
 
 		// Populate bot details
-		botDetails["name"]   = bot->GetName();
-		botDetails["gender"] = bot->getGender() == GENDER_MALE ? "male" : "female";
-		botDetails["level"]  = std::to_string(bot->GetLevel());
-		botDetails["race"]   = ChatHelper::formatRace(bot->getRace());
-		botDetails["class"]  = ChatHelper::formatClass(bot->getClass());
-		botDetails["guild"]  = ChatHelper::getGuildName(bot);
-		botDetails["zone"]   = WorldPosition(bot).getAreaName();
-		botDetails["subzone"] = WorldPosition(bot).getAreaOverride();
+		botDetails["name"]		= bot->GetName();
+		botDetails["gender"]	= bot->getGender() == GENDER_MALE ? "male" : "female";
+		botDetails["level"]		= std::to_string(bot->GetLevel());
+		botDetails["race"]		= ChatHelper::formatRace(bot->getRace());
+		botDetails["class"]		= ChatHelper::formatClass(bot->getClass());
+		botDetails["guild"]		= ChatHelper::getGuildName(bot);
+		botDetails["zone"]		= WorldPosition(bot).getAreaName();
+		botDetails["subzone"]	= WorldPosition(bot).getAreaOverride();
 
 		// Populate unit details
-		unitDetails["name"]		= unit->GetName();
-
+		unitDetails["name"]		= unitName;
 		if (unit->IsCreature())
 		{
 			Creature* creature = static_cast<Creature*>(unit);
@@ -571,6 +570,8 @@ bool RpgAIChatAction::RequestNewLines()
 	}
 	else
 	{
+		postPrompt += " " + sPlayerbotAIConfig.llmPostPrompt;
+
 		jsonFill["<pre prompt>"] = prePrompt;
 		jsonFill["<prompt>"] = "";
 		jsonFill["<post prompt>"] = postPrompt;
