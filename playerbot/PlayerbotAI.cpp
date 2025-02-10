@@ -266,6 +266,21 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         isWaiting = false;
     }
 
+	// Randomly initiate conversation
+	time_t now = time(0);
+
+	// Run InitiateChat only if at least 30 seconds has passed since the last execution
+	if (now - lastInitiateChatTime >= 30)
+	{
+		// Run InitiateChat only if enabled and bot has relation to real player
+		if (sPlayerbotAIConfig.llmEnabled > 0 && sPlayerbotAIConfig.llmUseZyriaServer && HasPlayerRelation() &&
+			(HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3))
+		{
+			lastInitiateChatTime = now;  // Update the last execution time
+			InitiateChat();
+		}
+	}
+
     // cancel logout in combat
     if (bot->IsStunnedByLogout() || bot->GetSession()->isLogingOut())
     {
@@ -2067,21 +2082,6 @@ void PlayerbotAI::DoNextAction(bool min)
         SetAIInternalUpdateDelay(sPlayerbotAIConfig.globalCoolDown);
         return;
     }
-
-	// Randomly initiate conversation
-	time_t now = time(0);
-
-	// Run InitiateChat only if at least 30 seconds has passed since the last execution
-	if (now - lastInitiateChatTime >= 30)
-	{
-		// Run InitiateChat only if enabled and bot has relation to real player
-		if (sPlayerbotAIConfig.llmEnabled > 0 && sPlayerbotAIConfig.llmUseZyriaServer && HasPlayerRelation() &&
-			(HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3))
-		{
-			lastInitiateChatTime = now;  // Update the last execution time
-			InitiateChat();
-		}
-	}
 
     // if in combat but stuck with old data - clear targets
     if (currentEngine == engines[(uint8)BotState::BOT_STATE_NON_COMBAT] && sServerFacade.IsInCombat(bot))
