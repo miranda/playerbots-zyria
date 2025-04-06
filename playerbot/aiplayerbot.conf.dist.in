@@ -972,6 +972,8 @@ AiPlayerbot.PerfMonEnabled = 0
 # AiPlayerbot.LLMEnabled = 2
 # Enables/disables Zyria LLM Server mode. Default is 1 (enabled)
 # AiPlayerbot.LLMUseZyriaServer = 1
+# The api endpoint that should be called for chat generation.
+# AiPlayerbot.LLMApiEndpoint = http://127.0.0.1:5050/zyria/v1/generate
 # Time in seconds the server will wait for the generation to finish. This includes waiting in queue.
 # AiPlayerbot.LLMGenerationTimeout = 600
 # Maximum generation requests allowed at the same time. This includes waiting in queue.
