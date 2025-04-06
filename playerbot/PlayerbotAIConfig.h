@@ -369,13 +369,20 @@ public:
     bool perfMonEnabled;
     bool bExplicitDbStoreSave = false;
 
-    //LM BEGIN
+	bool enableRpgPhases;
+
+    //LLM BEGIN
     std::string llmApiEndpoint, llmApiKey, llmApiJson, llmPrePrompt, llmPreRpgPrompt, llmPrompt, llmPostPrompt, llmResponseStartPattern, llmResponseEndPattern, llmResponseDeletePattern, llmResponseSplitPattern;
     uint32 llmEnabled, llmContextLength, llmBotToBotChatChance, llmGenerationTimeout, llmMaxSimultaniousGenerations, llmRpgAIChatChance;
     bool llmGlobalContext;
     ParsedUrl llmEndPointUrl;
     std::set<uint32> llmBlockedReplyChannels;
-    //LM END
+	//Zyria LLM Server
+    float zyriaInitiateChance;
+    bool llmUseZyriaServer, zyriaDebugLogging, zyriaInitiateAlone;
+	uint32 zyriaExpansionSelect, zyriaInitiateInterval, zyriaInitiateCooldown, zyriaInitiateRandomize, zyriaInitiateGuild;
+	uint32 zyriaGlobalBurstLimit, zyriaLowPriorityBurstLimit, zyriaBurstWindowDuration, zyriaMaxNearbyPlayers;
+    //LLM END
 
     std::string GetValue(std::string name);
     void SetValue(std::string name, std::string value);

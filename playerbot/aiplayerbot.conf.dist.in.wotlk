@@ -1,6 +1,8 @@
 ##########################################
 # MANGOS Ai Playerbot Configuration file #
 ##########################################
+# Enhanced with Zyria LLM Server options #
+##########################################
 
 [AiPlayerbotConf]
 ConfVersion=2020072501
@@ -990,63 +992,60 @@ AiPlayerbot.PerfMonEnabled = 0
 # AiPlayerbot.DiffWithPlayer = 100
 # AiPlayerbot.DiffEmpty = 200
 
-# LLM values. These values are for noncombat strategy 'ai chat' which allows bots to reply using a LLM api.
-# For a quickstart download koboldcpp, a 7b model from huggingface and start kobold.
-# (Default) KoboldCPP examples:
 
-# Enables/disables LLM globaly: 0 = disabled, 1 = enabled with ai chat strategy, 2 = ai chat strategy default for all bots, 3 = enabled without ai chat strategy.
-# AiPlayerbot.LLMEnabled = 1
-# The api endpoint that should be called for chat generation.
-# AiPlayerbot.LLMApiEndpoint = http://127.0.0.1:5001/api/v1/generate
-# The api key needed to access the endpoint.
-# AiPlayerbot.LLMApiKey =
-# The default json to send to the endpoint.
-# AiPlayerbot.LLMApiJson = {"max_length": 100, "prompt": "[<pre prompt>]<context> <prompt> <post prompt>"}
+# LLM global values. These values are for noncombat strategy 'ai chat' which allows bots to reply using a LLM api.
 
-# The max context length allowed for the model. 0 to disable. This will shrink the context (all previous conversations) to make the entire prompt <pre prompt><context><prompt><post prompt> fit.
-# AiPlayerbot.LLMContextLength = 4096
+# Enables/disables LLM globally: 0 = disabled, 1 = enabled with ai chat strategy, 2 = ai chat strategy default for all bots (default), 3 = enabled without ai chat strategy.
+# AiPlayerbot.LLMEnabled = 2
+# Enables/disables Zyria LLM Server mode. Default is 1 (enabled)
+# AiPlayerbot.LLMUseZyriaServer = 1
 # Time in seconds the server will wait for the generation to finish. This includes waiting in queue.
 # AiPlayerbot.LLMGenerationTimeout = 600
 # Maximum generation requests allowed at the same time. This includes waiting in queue.
 # AiPlayerbot.LLMMaxSimultaniousGenerations = 100
-
-# The default prompt to send at the beginning of each conversation.
-# AiPlayerbot.LLMPrePrompt = You are a roleplaying character in World of Warcraft: <expansion name>. Your name is <bot name>. The <other type> <other name> is speaking to you <channel name> and is an <other gender> <other race> <other class> of level <other level>. You are level <bot level> and play as a <bot gender> <bot race> <bot class> that is currently in <bot subzone> <bot zone>. Answer as a roleplaying character. Limit responses to 100 characters.
-# The prompt part containing the last message from the player the bot is responding to.
-# AiPlayerbot.LLMPrompt = <receiver name>:<initial message>
-# The default prompt to send at the end of each conversation.
-# AiPlayerbot.LLMPostPrompt = <bot name>:
-
-# The prompt used for rpg chat with npc's
-# AiPlayerbot.LLMRpgPrompt = In World of Warcraft: <expansion name> in <bot zone> <bot subzone> stands <bot type> <bot name> a level <bot level> <bot gender> <bot race> <bot class>. Standing nearby is <unit type> <unit name> <unit subname> a level <unit level> <unit gender> <unit race> <unit faction> <unit class>. Answer as a roleplaying character. Limit responses to 100 characters.
-
-# Response parse method. The (json) response that the llm will output needs to be cut and split to result in a number of plain lines the bot can give as feedback.
-# Step1: What pattern the server should look for to find the start of the repsonse the llm gave.
-# AiPlayerbot.LLMResponseStartPattern = ("text":\s*")
-# Step2: What pattern the server should look for that the response has ended.
-# AiPlayerbot.LLMResponseEndPattern = ("|\b(?!<sender name>\b)(\w+):)
-# Step3: What pattern the server should look for to remove from the response.
-# AiPlayerbot.LLMResponseDeletePattern = (\\n|<sender name>:|\\[^ ]+)
-# Step4: What pattern the server should look for to split the repsonse in multiple lines. Note only lines that follow this pattern will be extracted.
-# AiPlayerbot.LLMResponseSplitPattern = (\*.*?\*)|(\[.*?\])|(\'.*\')|([^\*\[\] ][^\*\[\]]+?[.?!])
-
-# Should previous conversations from all channels be mixed?
-# AiPlayerbot.LLMGlobalContext = 0
-
-# The chance (0-100) bots will use ai chat to respond to other bots 
-# AiPlayerbot.LLMBotToBotChatChance = 0
-
+# The chance (0-100) bots will use ai chat to respond to other bots (Default here is 100, response chance can be adusted in zyria.conf)
+# AiPlayerbot.LLMBotToBotChatChance = 100
 # The chance (0-100) bots will use ai chat talk to npcs during rpg
 # AiPlayerbot.LLMRpgAIChatChance = 100
-
 # Channels that bots are not allowed to use ai-chat to reply on. Channels: guild,world,general,trade,lfg,ldefence,wdefence,grecruitement,say,whisper,emote,temote,yell,party,raid
 # AiPlayerbot.LLMBlockedReplyChannels = 
 
-# OPEN-AI (chat completions) example:
-# AiPlayerbot.LLMApiEndpoint = http://IP/URL:PORT/v1/chat/completions
-# AiPlayerbot.LLMApiKey = YOUR_API_KEY
-# AiPlayerbot.LLMApiJson = {"model": "gpt-4o-mini", "messages": [{"role": "system", "content": "<pre prompt> <context>"},{"role": "user", "content": "<prompt>"}],"max_tokens": 60}
-# AiPlayerbot.LLMResponseStartPattern = ("content":\s*")
+# Zyria LLM Server specific settings
+
+# Sets the Expansion for the Zyria server. 0 = Vanilla, 1 = TBC (default), 2 = WOTLK
+AiPlayerbot.LLMExpansionSelect = 2
+# Enables/disables debug log file for Zyria server. Default is 0 (disabled)
+# AiPlayerbot.ZyriaDebugLogging = 0
+# Interval in seconds that bots with a relation to a real player will try for a chance initiate chat in group or guild chat. Default is 15
+# AiPlayerbot.ZyriaInitiateInterval = 15
+# Chance eligible bots will initiate chat at each interval. Default is 1.0, 0 = disabled
+# AiPlayerbot.ZyriaInitiateChance = 1.0
+# Enables/disables ability of bots to initiate chat without a real player online. Default is 0 (disabled) 
+# AiPlayerbot.ZyriaInitiateAlone = 0
+# Base cooldown time in seconds before bot has chance to initiate chat again. Default is 120
+# AiPlayerbot.ZyriaInitiateCooldown = 120
+# Additional random time amount in seconds added to base cooldown. Default is 60
+# AiPlayerbot.ZyriaInitiateRandomize = 60
+# Percent chance bots will choose guild chat over party/raid chat. Default is 90
+# AiPlayerbot.ZyriaInitiateGuild = 90
+# Global LLM request burst limit, prevents bots from seeing messages when overloaded
+# AiPlayerbot.ZyriaGlobalBurstLimit = 20
+# Request burst limit for low priority channels with heavy traffic, such as World, Trade, General, etc
+# AiPlayerbot.ZyriaLowPriorityBurstLimit = 5
+# Time in seconds for each window that the burst throttling is applied
+# AiPlayerbot.ZyriaBurstWindowDuration = 10
+# Maximum number of nearby bots that hear an open-world message, not including sender. Default is 6
+# AiPlayerbot.ZyriaMaxNearbyPlayers = 6
+
+
+# Additional LLM values for use with other LLM servers (LLM settings below this point are ignored by Zyria)
+
+# KoboldCPP examples:
+# The api endpoint that should be called for chat generation.
+# AiPlayerbot.LLMApiEndpoint = http://127.0.0.1:5001/api/v1/generate
+# The api key needed to access the endpoint.
+# AiPlayerbot.LLMApiKey =
+
 
 # Enable the alternative asynchronous login system.
 # AiPlayerbot.AsyncBotLogin = 0

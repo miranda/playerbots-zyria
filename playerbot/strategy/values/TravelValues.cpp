@@ -274,20 +274,25 @@ bool NeedTravelPurposeValue::Calculate()
         return ai->HasStrategy("explore", BotState::BOT_STATE_NON_COMBAT);    
     case TravelDestinationPurpose::GenericRpg:
     {
-        uint32 rpgPhase = ai->GetFixedBotNumber(BotTypeNumber::RPG_PHASE_NUMBER, 60, 1);
+		if (sPlayerbotAIConfig.enableRpgPhases)
+		{
+			uint32 rpgPhase = ai->GetFixedBotNumber(BotTypeNumber::RPG_PHASE_NUMBER, 60, 1);
 
-        if (rpgPhase < 15) //Only last 45 minutes of the hour allow generic rpg.
-            return false;
+			if (rpgPhase < 15) //Only last 45 minutes of the hour allow generic rpg.
+				return false;
 
+		}
         return !AI_VALUE2(bool, "manual bool", "is travel refresh");
     }
     case TravelDestinationPurpose::Grind:
     {
-        uint32 rpgPhase = ai->GetFixedBotNumber(BotTypeNumber::RPG_PHASE_NUMBER, 60, 1);
+		if (sPlayerbotAIConfig.enableRpgPhases)
+		{
+			uint32 rpgPhase = ai->GetFixedBotNumber(BotTypeNumber::RPG_PHASE_NUMBER, 60, 1);
 
-        if (rpgPhase > 45) //Only first 45 minutes of the hour allow generic grind.
-            return false;
-
+			if (rpgPhase > 45) //Only first 45 minutes of the hour allow generic rpg.
+				return false;
+		}
         return !AI_VALUE2(bool, "manual bool", "is travel refresh");
     }
     default:

@@ -1101,3 +1101,34 @@ std::vector<GameObjectDataPair const*> WorldPosition::getGameObjectsNear(const f
     sObjectMgr.DoGOData(worker);
     return worker.GetResult();
 }
+
+std::pair<std::string, std::string> WorldPosition::getZoneAndSubzoneNames() const
+{
+    std::string zoneName = getAreaName(false);  // Get only the main zone name
+    std::string subzoneName = getAreaOverride();  // Get the override subzone
+
+    // If getAreaOverride() returns empty, try extracting the subzone from fullAreaName
+    if (subzoneName.empty()) {
+        std::string fullAreaName = getAreaName(true);
+
+        // Check if zoneName actually exists within fullAreaName
+        size_t pos = fullAreaName.find(zoneName);
+        if (pos != std::string::npos) {
+            // Extract anything after the zone name as the subzone
+            subzoneName = fullAreaName.substr(pos + zoneName.length());
+            subzoneName.erase(0, subzoneName.find_first_not_of(" "));  // Trim leading spaces
+        }
+    }
+
+    return {zoneName, subzoneName};  // Return as a pair of strings
+}
+
+std::string WorldPosition::getContinentName() const
+{
+	MapEntry const* map = sMapStore.LookupEntry(getMapId());
+    
+	if (map)
+        return map->name[0];
+
+	return "Unknown";
+}

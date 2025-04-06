@@ -224,7 +224,7 @@ namespace ai
 
             created.clear();
         }
-
+/*
         void Erase(const std::string& name)
         {
             if (created.find(name) != created.end())
@@ -233,6 +233,18 @@ namespace ai
                 created.erase(name);
             }
         }
+*/
+		void Erase(const std::string& name)
+		{
+			auto it = created.find(name);
+			if (it != created.end())
+			{
+				if (it->second) // Crash fix
+					delete it->second;
+
+				created.erase(it);
+			}
+		}
 
         void Update()
         {

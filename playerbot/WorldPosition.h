@@ -319,6 +319,10 @@ namespace ai
         std::vector<CreatureDataPair const*> getCreaturesNear(const float radius = 0, const uint32 entry = 0) const;
         //GameObjects
         std::vector<GameObjectDataPair const*> getGameObjectsNear(const float radius = 0, const uint32 entry = 0) const;
+
+		//Better area names for LLM
+		std::pair<std::string, std::string> getZoneAndSubzoneNames() const;
+		std::string getContinentName() const;
     };
 
     inline ByteBuffer& operator<<(ByteBuffer& b, WorldPosition& guidP)

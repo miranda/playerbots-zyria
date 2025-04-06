@@ -564,9 +564,13 @@ bool PlayerbotAIConfig::Initialize()
     respawnModForPlayerBots = config.GetBoolDefault("AiPlayerbot.RespawnModForPlayerBots", false);
     respawnModForInstances = config.GetBoolDefault("AiPlayerbot.RespawnModForInstances", false);
 
+	//RPG phases
+	enableRpgPhases = config.GetBoolDefault("AiPlayerbot.EnableRPGPhases", true);
+
     //LLM START
-    llmEnabled = config.GetIntDefault("AiPlayerbot.LLMEnabled", 1);
-    llmApiEndpoint = config.GetStringDefault("AiPlayerbot.LLMApiEndpoint", "http://127.0.0.1:5001/api/v1/generate");
+    llmEnabled = config.GetIntDefault("AiPlayerbot.LLMEnabled", 2);
+    llmUseZyriaServer = config.GetBoolDefault("AiPlayerbot.LLMUseZyriaServer", true);
+    llmApiEndpoint = config.GetStringDefault("AiPlayerbot.LLMApiEndpoint", "http://127.0.0.1:5050/zyria/v1/generate");
     try {
         llmEndPointUrl = parseUrl(llmApiEndpoint);
     }
@@ -578,14 +582,25 @@ bool PlayerbotAIConfig::Initialize()
     llmContextLength = config.GetIntDefault("AiPlayerbot.LLMContextLength", 4096);
     llmGenerationTimeout = config.GetIntDefault("AiPlayerbot.LLMGenerationTimeout", 600);
     llmMaxSimultaniousGenerations = config.GetIntDefault("AiPlayerbot.LLMMaxSimultaniousGenerations", 100);
-        
-    
+	
+	//Zyria LLM Server options
+	zyriaExpansionSelect = config.GetIntDefault("AiPlayerbot.ZyriaExpansionSelect", 1);   
+    zyriaDebugLogging = config.GetBoolDefault("AiPlayerbot.ZyriaDebugLogging", false);
+    zyriaInitiateInterval = config.GetIntDefault("AiPlayerbot.ZyriaInitiateInterval", 15);
+    zyriaInitiateChance = config.GetFloatDefault("AiPlayerbot.ZyriaInitiateChance", 1.0f);
+    zyriaInitiateCooldown = config.GetIntDefault("AiPlayerbot.ZyriaInitiateCooldown", 120);
+    zyriaInitiateRandomize = config.GetIntDefault("AiPlayerbot.ZyriaInitiateRandomize", 60);
+    zyriaInitiateGuild = config.GetIntDefault("AiPlayerbot.ZyriaInitiateGuild", 90);
+    zyriaInitiateAlone = config.GetBoolDefault("AiPlayerbot.ZyriaInitiateAlone", false);
+	zyriaGlobalBurstLimit = config.GetIntDefault("AiPlayerbot.ZyriaGlobalBurstLimit", 20);
+	zyriaLowPriorityBurstLimit = config.GetIntDefault("AiPlayerbot.ZyriaLowPriorityBurstLimit", 5);
+	zyriaBurstWindowDuration = config.GetIntDefault("AiPlayerbot.ZyriaBurstWindowDuration", 10);
+	zyriaMaxNearbyPlayers = config.GetIntDefault("AiPlayerbot.ZyriaMaxNearbyPlayers", 6);
+
     llmPrePrompt = config.GetStringDefault("AiPlayerbot.LLMPrePrompt", "You are a roleplaying character in World of Warcraft: <expansion name>. Your name is <bot name>. The <other type> <other name> is speaking to you <channel name> and is an <other gender> <other race> <other class> of level <other level>. You are level <bot level> and play as a <bot gender> <bot race> <bot class> that is currently in <bot subzone> <bot zone>. Answer as a roleplaying character. Limit responses to 100 characters.");
 
     llmPreRpgPrompt = config.GetStringDefault("AiPlayerbot.LLMRpgPrompt", "In World of Warcraft: <expansion name> in <bot zone> <bot subzone> stands <bot type> <bot name> a level <bot level> <bot gender> <bot race> <bot class>."
         " Standing nearby is <unit type> <unit name> <unit subname> a level <unit level> <unit gender> <unit race> <unit faction> <unit class>. Answer as a roleplaying character. Limit responses to 100 characters.");
-
-
 
     llmPrompt = config.GetStringDefault("AiPlayerbot.LLMPrompt", "<receiver name>:<initial message>");
     llmPostPrompt = config.GetStringDefault("AiPlayerbot.LLMPostPrompt", "<sender name>:");
@@ -593,8 +608,7 @@ bool PlayerbotAIConfig::Initialize()
     llmResponseStartPattern = config.GetStringDefault("AiPlayerbot.LLMResponseStartPattern", R"(("text":\s*"))");
     llmResponseEndPattern = config.GetStringDefault("AiPlayerbot.LLMResponseEndPattern", R"(("|\b(?!<sender name>\b)(\w+):))");
     llmResponseDeletePattern = config.GetStringDefault("AiPlayerbot.LLMResponseDeletePattern", R"((\\n|<sender name>:|\\[^ ]+))");
-    llmResponseSplitPattern = config.GetStringDefault("AiPlayerbot.LLMResponseSplitPattern", R"((\*.*?\*)|(\[.*?\])|(\'.*\')|([^\*\[\] ][^\*\[\]]+?[.?!]))");
-
+    llmResponseSplitPattern = config.GetStringDefault("AiPlayerbot.LLMResponseSplitPattern", R"((?:[^.!?]|\.{2,})+(?:[!?]+|\.)(?:\s+|$))");
     if (false) //Disable for release
     {
         sLog.outError("# AiPlayerbot.LLMResponseStartPattern = %s", llmResponseStartPattern.c_str());
@@ -632,7 +646,7 @@ bool PlayerbotAIConfig::Initialize()
     }
 
     llmGlobalContext = config.GetBoolDefault("AiPlayerbot.LLMGlobalContext", false);
-    llmBotToBotChatChance = config.GetIntDefault("AiPlayerbot.LLMBotToBotChatChance", 0);
+    llmBotToBotChatChance = config.GetIntDefault("AiPlayerbot.LLMBotToBotChatChance", 100);
     llmRpgAIChatChance = config.GetIntDefault("AiPlayerbot.LLMRpgAIChatChance", 100);
 
     std::list<std::string> blockedChannels;

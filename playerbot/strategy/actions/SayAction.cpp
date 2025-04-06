@@ -1,4 +1,3 @@
-
 #include "playerbot/playerbot.h"
 #include "SayAction.h"
 #include "playerbot/PlayerbotTextMgr.h"
@@ -8,6 +7,9 @@
 #include <regex>
 #include <boost/algorithm/string.hpp>
 #include "playerbot/PlayerbotLLMInterface.h"
+#include <boost/json.hpp>
+#include "playerbot/ZyriaLLMHandler.h"
+#include "playerbot/ZyriaDebug.h"
 
 using namespace ai;
 
@@ -163,14 +165,16 @@ void ChatReplyAction::GetAIChatPlaceholders(std::map<std::string, std::string>& 
     WorldPosition pos(unit);
     placeholders["<" + preFix + " zone>"] = pos.getAreaName();
     placeholders["<" + preFix + " subzone>"] = pos.getAreaOverride();
-
+	
     if (unit->IsPlayer())
     {
         placeholders["<" + preFix + " type>"] = "player";
         placeholders["<" + preFix + " subname>"] = "";
         placeholders["<" + preFix + " gossip>"] = "";
+		
+		placeholders["<" + preFix + " guild>"] = ChatHelper::getGuildName(unit);
     }
-    if (unit->IsCreature())
+  	if (unit->IsCreature())
     {
         Creature* creature = (Creature*)unit;
 
@@ -345,17 +349,36 @@ WorldPacket ChatReplyAction::GetPacketTemplate(Opcodes op, uint32 type, Unit* se
     return packetTemplate;
 }
 
-inline void LineToPacket(delayedPackets& delayedPackets, const WorldPacket packetTemplate, const std::string& line, uint32 MsPerChar, bool debug = false)
+inline void LineToPacket(delayedPackets& delayedPackets, const WorldPacket packetTemplate, std::string line, uint32 MsPerChar, bool debug = false)
 {
     WorldPacket packet(packetTemplate);
     if (packetTemplate.GetOpcode() != CMSG_MESSAGECHAT)
         packet << uint32(line.size() + 1 + (debug ? 2 : 0));
-    packet << ((debug ? "d:" : "") + line);
+    
+    if (debug)
+        packet << "d:";  // Debug prefix
+
+    uint32 delay = line.size() * MsPerChar;  // Default behavior
+
+    // If using Zyria LLM Server, check for delay control tags
+    if (sPlayerbotAIConfig.llmUseZyriaServer)
+    {
+        std::smatch match;
+        std::regex delayRegex(R"(\[DELAY:(\d+)\])");  // Regex to find [DELAY:xxxx] if it exists
+
+        if (std::regex_search(line, match, delayRegex))
+        {
+            delay = std::stoi(match[1]);  // Override delay with extracted value
+            line = std::regex_replace(line, delayRegex, "");  // Remove the tag from the message
+        }
+    }
+
+    packet << line;  // ✅ Ensure only the cleaned message is sent
 
     if (packetTemplate.GetOpcode() != CMSG_MESSAGECHAT)
         packet << CHAT_TAG_NONE;
 
-    delayedPackets.push_back(std::make_pair(packet, line.size() * MsPerChar));
+    delayedPackets.push_back(std::make_pair(packet, delay));
 }
 
 delayedPackets ChatReplyAction::LinesToPackets(const std::vector<std::string>& lines, WorldPacket packetTemplate, bool debug, uint32 MsPerChar, WorldPacket emoteTemplate)
@@ -389,7 +412,7 @@ delayedPackets ChatReplyAction::LinesToPackets(const std::vector<std::string>& l
 }
 
 delayedPackets ChatReplyAction::GenerateResponsePackets(const std::string json
-    , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug)
+    , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug, uint32 botGuid)
 {
     std::vector<std::string> debugLines;
 
@@ -398,7 +421,46 @@ delayedPackets ChatReplyAction::GenerateResponsePackets(const std::string json
 
     std::string response = PlayerbotLLMInterface::Generate(json, sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
 
-    std::vector<std::string> lines = PlayerbotLLMInterface::ParseResponse(response, startPattern, endPattern, deletePattern, splitPattern, debugLines);
+    std::vector<std::string> lines;
+
+    if (sPlayerbotAIConfig.llmUseZyriaServer)
+    {
+		Player* bot = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, botGuid));
+        PlayerbotAI* botAi = bot ? bot->GetPlayerbotAI() : nullptr;
+
+		boost::json::object zyria_data;
+        std::tie(lines, zyria_data) = PlayerbotLLMInterface::ParseResponseV2(response, splitPattern, debugLines);
+
+        if (!zyria_data.empty())
+		{
+            ZyriaDebug("[ZyriaData] " + boost::json::serialize(zyria_data));
+			ZyriaLLMHandler::Process(botAi, zyria_data);
+		}
+
+		// Update initiate chat cooldown for valid LLM responses
+		if (!lines.empty() && botGuid)
+		{
+			for (const std::string& line : lines)
+				ZyriaDebug("LLM generated response: \"" + line + "\"");
+
+			// Extract the message type from chatTemplate
+			uint32 msgType;
+			memcpy(&msgType, chatTemplate.contents(), sizeof(uint32));  // Read first 4 bytes
+
+			if (msgType == CHAT_MSG_GUILD || msgType == CHAT_MSG_PARTY || msgType == CHAT_MSG_RAID)
+			{
+				if (botAi)
+				{
+					botAi->UpdateInitiateChatCooldowns();
+					ZyriaDebug("ChatReplyAction: Chat message (type " + std::to_string(msgType) + ") triggered chat initiation cooldown reset for <" + static_cast<std::string>(bot->GetName()) + ">");
+				}
+			}
+		}
+	}
+    else
+    {
+        lines = PlayerbotLLMInterface::ParseResponse(response, startPattern, endPattern, deletePattern, splitPattern, debugLines);
+	}
 
     delayedPackets packets, debugPackets;
 
@@ -415,6 +477,9 @@ delayedPackets ChatReplyAction::GenerateResponsePackets(const std::string json
 
 void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32 guid2, std::string msg, std::string chanName, std::string name)
 {
+	// Detect request for bot initiated conversation
+	bool initiateChat = (msg.compare("[Initiate Conversation]") == 0 && guid1 == guid2);
+
     // if we're just commanding bots around, don't respond...
     // first one is for exact word matches
     if (noReplyMsgs.find(msg) != noReplyMsgs.end())
@@ -477,7 +542,7 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
     if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
         )
     {
-        Player* player = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, guid1));
+		Player*	player = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, guid1));
 
         PlayerbotAI* ai = bot->GetPlayerbotAI();
         AiObjectContext* context = ai->GetAiObjectContext();
@@ -491,18 +556,20 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
             llmChannel = ((chatChannelSource == ChatChannelSource::SRC_WHISPER) ? name : std::to_string(chatChannelSource));
 
         std::string llmContext = AI_VALUE(std::string, "manual string::llmcontext" + llmChannel);
+        std::string botName = bot->GetName();
 
-        if (player)
+		if (player)
         {
-            std::string playerName = player->GetName();
+			std::string playerName = player->GetName();
 
-            if (player != bot && (player->isRealPlayer() || (sPlayerbotAIConfig.llmBotToBotChatChance && urand(0, 99) < sPlayerbotAIConfig.llmBotToBotChatChance)))
-            {
+			if (player->isRealPlayer() || (player == bot && sPlayerbotAIConfig.llmUseZyriaServer) || // Allow self-replies with Zyria LLM server
+				(player != bot && sPlayerbotAIConfig.llmBotToBotChatChance && urand(0, 99) < sPlayerbotAIConfig.llmBotToBotChatChance))
+			{
                 std::map<std::string, std::string> placeholders;
 
-                GetAIChatPlaceholders(placeholders, bot, player);
-                GetAIChatPlaceholders(placeholders, bot, "bot");
-                GetAIChatPlaceholders(placeholders, player, "other");
+				GetAIChatPlaceholders(placeholders, bot, player);
+				GetAIChatPlaceholders(placeholders, bot, "bot");
+				GetAIChatPlaceholders(placeholders, player, "other");
 
                 std::map<ChatChannelSource, std::string> sourceName;
                 sourceName[ChatChannelSource::SRC_GUILD] = "in guild chat";
@@ -522,89 +589,218 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
                 sourceName[ChatChannelSource::SRC_RAID] = "in raid chat";
 
                 placeholders["<channel name>"] = sourceName[chatChannelSource];
-
-
                 placeholders["<initial message>"] = msg;
 
-                std::string llmPromptCustom = AI_VALUE(std::string, "manual saved string::llmdefaultprompt");
+				std::string json;
+				std::string startPattern, endPattern, deletePattern, splitPattern;
+				startPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseStartPattern, placeholders);
 
-                std::map<std::string, std::string> jsonFill;
-                jsonFill["<pre prompt>"] = sPlayerbotAIConfig.llmPrePrompt + " " + llmPromptCustom;
-                jsonFill["<prompt>"] = sPlayerbotAIConfig.llmPrompt;
-                jsonFill["<post prompt>"] = sPlayerbotAIConfig.llmPostPrompt;
+				if (sPlayerbotAIConfig.llmUseZyriaServer)
+				{
+					boost::json::object speakerDetails, senderDetails, jsonData;
+					std::pair<std::string, std::string> senderZoneData	= WorldPosition(player).getZoneAndSubzoneNames();
+					std::pair<std::string, std::string> speakerZoneData	= WorldPosition(bot).getZoneAndSubzoneNames();
 
-                for (auto& prompt : jsonFill)
-                {
-                    prompt.second = BOT_TEXT2(prompt.second, placeholders);
-                }
+					// Get current time in milliseconds since epoch
+					auto now = std::chrono::system_clock::now();
+					auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
 
-                uint32 currentLength = jsonFill["<pre prompt>"].size() + jsonFill["<context>"].size() + jsonFill["<prompt>"].size() + llmContext.size();
-                PlayerbotLLMInterface::LimitContext(llmContext, currentLength);
-                jsonFill["<context>"] = llmContext;
+					// Populate sender (player) details
+					senderDetails["type"]		= player->isRealPlayer() ? "player" : "bot";
+					senderDetails["name"]		= playerName;
+					senderDetails["gender"]		= player->getGender() == GENDER_MALE ? "male" : "female";
+					senderDetails["level"]		= std::to_string(player->GetLevel());
+					senderDetails["race"]		= ChatHelper::formatRace(player->getRace());
+					senderDetails["class"]		= ChatHelper::formatClass(player->getClass());
+					senderDetails["spec"]		= ChatHelper::specName(player);
+					senderDetails["guild"]		= ChatHelper::getGuildName(player);
+					senderDetails["continent"]	= WorldPosition(player).getContinentName();
+					senderDetails["zone"]		= senderZoneData.first; 
+					senderDetails["subzone"]	= senderZoneData.second; 
+					senderDetails["in_combat"]	= player->IsInCombat();
+					senderDetails["afk"]		= player->isAFK();
 
-                llmContext += " " + jsonFill["<prompt>"];
+					// Populate speaker (bot) details
+					speakerDetails["type"]		= "bot";
+					speakerDetails["name"]		= botName;
+					speakerDetails["gender"]	= bot->getGender() == GENDER_MALE ? "male" : "female";
+					speakerDetails["level"]		= std::to_string(bot->GetLevel());
+					speakerDetails["race"]		= ChatHelper::formatRace(bot->getRace());
+					speakerDetails["class"]		= ChatHelper::formatClass(bot->getClass());
+					speakerDetails["spec"]		= ChatHelper::specName(bot);
+					speakerDetails["guild"]		= ChatHelper::getGuildName(bot);
+					speakerDetails["continent"]	= WorldPosition(bot).getContinentName();
+					speakerDetails["zone"]		= speakerZoneData.first;
+					speakerDetails["subzone"]	= speakerZoneData.second;
+					speakerDetails["in_combat"]	= bot->IsInCombat();
+					speakerDetails["afk"]		= bot->isAFK();
 
-                for (auto& prompt : jsonFill)
-                {
-                    prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
-                }
+					// Add channel members
+					boost::json::object channelMembersJson;
+					std::string zyriaChannel;
+					Group* group = bot->GetGroup(); 
 
-                for (auto& prompt : placeholders) //Sanitize now instead of earlier to prevent double Sanitation
-                {
-                    prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
-                }
+					if (sourceName[chatChannelSource] == "in party chat")
+					{
+						if (group && !group->IsRaidGroup())
+						{
+							zyriaChannel = "Party" + std::to_string(group->GetId()) + "_";
+							channelMembersJson = getGroupMembersJson(bot);
+							ZyriaDebug("Group members: " + boost::json::serialize(channelMembersJson));
+						}
+					}
+					else if (sourceName[chatChannelSource] == "in raid chat")
+					{
+						if (group && group->IsRaidGroup())
+						{
+							zyriaChannel = "Raid" + std::to_string(group->GetId()) + "_";
+							channelMembersJson = getGroupMembersJson(bot);
+							ZyriaDebug("Group members: " + boost::json::serialize(channelMembersJson));
+						}
+					}
+					else if (sourceName[chatChannelSource] == "in guild chat")
+					{
+						if (uint32 guildId = bot->GetGuildId())
+						{
+							zyriaChannel = "Guild" + std::to_string(guildId) + "_";
 
-                std::string startPattern, endPattern, deletePattern, splitPattern;
-                startPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseStartPattern, placeholders);
-                endPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseEndPattern, placeholders);
-                deletePattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseDeletePattern, placeholders);
-                splitPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseSplitPattern, placeholders);
+							std::vector<std::string> guildMembers = ChatHelper::getGuildMemberNames(bot);
+							for (const auto& member : guildMembers)
+							{
+								channelMembersJson[member] = boost::json::object();
+							}
+							ZyriaDebug("Guild members: " + boost::json::serialize(channelMembersJson));
+						}		
+					}
+					else if (sourceName[chatChannelSource] == "directly"
+						  || sourceName[chatChannelSource] == "with a yell"
+						  || sourceName[chatChannelSource] == "with body language"
+						  || sourceName[chatChannelSource] == "with an emote")
+					{
+						zyriaChannel = "Directly" + std::to_string(bot->GetGuildId()) + "_";
+						if (PlayerbotAI* botAi = bot->GetPlayerbotAI())
+							channelMembersJson = getNearbyPlayersJson(player, bot);
+					}
+					else if (sourceName[chatChannelSource] == "in private message")
+					{
+						zyriaChannel = "Whisper_";
+					}
+					else if (!chanName.empty())
+					{
+						zyriaChannel = chanName + "_";
+					}
+					else
+					{
+						zyriaChannel = "Unknown_";
+					}
 
-                std::string json = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmApiJson, jsonFill);
+					// Populate JSON data
+					jsonData["message_type"]	= initiateChat ? "new" : "reply";
+					jsonData["sender"]			= senderDetails;
+					jsonData["speaker"]			= speakerDetails;
+					jsonData["expansion"]		= sPlayerbotAIConfig.zyriaExpansionSelect;
+					jsonData["channel_members"] = std::move(channelMembersJson);
+					jsonData["llm_channel"]		= zyriaChannel + llmChannel;
+					jsonData["channel_label"]	= sourceName[chatChannelSource];
+					jsonData["time_created"]	= timestamp;
 
-                json = PlayerbotTextMgr::GetReplacePlaceholders(json, placeholders);
+					if (initiateChat)
+					{
+						ai->UpdateInitiateChatCooldowns(true);
+						ZyriaDebug(botName + " is initiating chat using llmChannel " + llmChannel);
+					}
+					else
+					{
+						jsonData["message"]		= PlayerbotLLMInterface::SanitizeForJson(msg);
+						ZyriaDebug(playerName + " is sending message \"" + msg + "\" to " + botName + " using llmChannel " + llmChannel);
+					}
+
+					json = boost::json::serialize(jsonData);
+					ZyriaDebug("Serialized request JSON: " + json);
+
+					endPattern = "\"";
+					deletePattern = "";
+					splitPattern = "\\|"; 
+				}
+				else
+				{
+					std::string llmPromptCustom = AI_VALUE(std::string, "manual saved string::llmdefaultprompt");
+					
+					std::map<std::string, std::string> jsonFill;
+					jsonFill["<pre prompt>"] = sPlayerbotAIConfig.llmPrePrompt + " " + llmPromptCustom;
+					jsonFill["<prompt>"] = sPlayerbotAIConfig.llmPrompt;
+					jsonFill["<post prompt>"] = sPlayerbotAIConfig.llmPostPrompt;
+
+					for (auto& prompt : jsonFill)
+					{
+						prompt.second = BOT_TEXT2(prompt.second, placeholders);
+					}
+
+					uint32 currentLength = jsonFill["<pre prompt>"].size() + jsonFill["<context>"].size() + jsonFill["<prompt>"].size() + llmContext.size();
+					PlayerbotLLMInterface::LimitContext(llmContext, currentLength);
+					jsonFill["<context>"] = llmContext;
+
+					llmContext += " " + jsonFill["<prompt>"];
+
+					for (auto& prompt : jsonFill)
+					{
+						prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
+					}
+
+					for (auto& prompt : placeholders) //Sanitize now instead of earlier to prevent double Sanitation
+					{
+						prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
+					}
+
+					json = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmApiJson, jsonFill);
+					json = PlayerbotTextMgr::GetReplacePlaceholders(json, placeholders);
+
+					endPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseEndPattern, placeholders);
+					deletePattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseDeletePattern, placeholders);
+					splitPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseSplitPattern, placeholders);
+				}
 
                 uint32 type = CHAT_MSG_WHISPER;
                 std::string channelName;
 
                 switch (chatChannelSource)
                 {
-                case ChatChannelSource::SRC_WHISPER:
-                {
-                    type = CHAT_MSG_WHISPER;
-                    break;
-                }
-                case ChatChannelSource::SRC_SAY:
-                {
-                    type = CHAT_MSG_SAY;
-                    break;
-                }
-                case ChatChannelSource::SRC_YELL:
-                {
-                    type = CHAT_MSG_YELL;
-                    break;
-                }
-                case ChatChannelSource::SRC_PARTY:
-                {
-                    type = CHAT_MSG_PARTY;
-                    break;
-                }
-                case ChatChannelSource::SRC_GUILD:
-                {
-                    type = CHAT_MSG_GUILD;
-                    break;
-                }
-                case ChatChannelSource::SRC_WORLD:
-                case ChatChannelSource::SRC_GENERAL:
-                case ChatChannelSource::SRC_TRADE:
-                case ChatChannelSource::SRC_LOCAL_DEFENSE:
-                case ChatChannelSource::SRC_WORLD_DEFENSE:
-                case ChatChannelSource::SRC_LOOKING_FOR_GROUP:
-                case ChatChannelSource::SRC_GUILD_RECRUITMENT:
-                {
-                    type = CHAT_MSG_CHANNEL;
-                    channelName = chanName;
-                }
+					case ChatChannelSource::SRC_WHISPER:
+					{
+						type = CHAT_MSG_WHISPER;
+						break;
+					}
+					case ChatChannelSource::SRC_SAY:
+					{
+						type = CHAT_MSG_SAY;
+						break;
+					}
+					case ChatChannelSource::SRC_YELL:
+					{
+						type = CHAT_MSG_YELL;
+						break;
+					}
+					case ChatChannelSource::SRC_PARTY:
+					{
+						type = CHAT_MSG_PARTY;
+						break;
+					}
+					case ChatChannelSource::SRC_GUILD:
+					{
+						type = CHAT_MSG_GUILD;
+						break;
+					}
+					case ChatChannelSource::SRC_WORLD:
+					case ChatChannelSource::SRC_GENERAL:
+					case ChatChannelSource::SRC_TRADE:
+					case ChatChannelSource::SRC_LOCAL_DEFENSE:
+					case ChatChannelSource::SRC_WORLD_DEFENSE:
+					case ChatChannelSource::SRC_LOOKING_FOR_GROUP:
+					case ChatChannelSource::SRC_GUILD_RECRUITMENT:
+					{
+						type = CHAT_MSG_CHANNEL;
+						channelName = chanName;
+					}
                 }
 
                 bool debug = bot->GetPlayerbotAI()->HasStrategy("debug llm", BotState::BOT_STATE_NON_COMBAT);
@@ -615,19 +811,22 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
                 WorldPacket emoteTemplate = (type == CHAT_MSG_SAY || type == CHAT_MSG_WHISPER) ? GetPacketTemplate(CMSG_MESSAGECHAT, CHAT_MSG_EMOTE, bot, player) : WorldPacket();
                 WorldPacket systemTemplate = GetPacketTemplate(CMSG_MESSAGECHAT, CHAT_MSG_WHISPER, bot, player);
 
-                futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
+                futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug, bot->GetObjectGuid());
 
                 ai->SendDelayedPacket(session, std::move(futPackets));
             }
-            else if (player != bot || sPlayerbotAIConfig.llmBotToBotChatChance)
+			else if (player != bot || sPlayerbotAIConfig.llmBotToBotChatChance)
             {
                 if (msg.find("d:") != std::string::npos)
                     return;
-
-                llmContext = llmContext + " " + playerName + ":" + msg;
-                PlayerbotLLMInterface::LimitContext(llmContext, llmContext.size());
+				
+				if (!sPlayerbotAIConfig.llmUseZyriaServer)	// Don't manage context when using Zyria server
+				{
+					llmContext = llmContext + " " + playerName + ":" + msg;
+					PlayerbotLLMInterface::LimitContext(llmContext, llmContext.size());
+					SET_AI_VALUE(std::string, "manual string::llmcontext" + llmChannel, llmContext);
+				}
             }
-            SET_AI_VALUE(std::string, "manual string::llmcontext" + llmChannel, llmContext);
 
             return;
         }
@@ -1496,4 +1695,109 @@ std::string ChatReplyAction::GenerateReplyMessage(Player* bot, std::string incom
 bool ChatReplyAction::isUseful()
 {
     return !ai->HasStrategy("silent", BotState::BOT_STATE_NON_COMBAT);
+}
+
+namespace ai
+{
+	boost::json::object getGroupMembersJson(Player* bot)
+	{
+		boost::json::object membersObject; // Default-constructed empty JSON object
+
+		if (!bot || !bot->GetGroup())
+			return membersObject; // Return an empty object if there's no group
+
+		for (GroupReference* itr = bot->GetGroup()->GetFirstMember(); itr != nullptr; itr = itr->next())
+		{
+			Player* player = itr->getSource();
+			if (!player || !player->IsInWorld())
+				continue;
+
+			boost::json::object playerObject; // Explicitly use boost::json::object for nested data
+			
+			if (player != bot)
+			{
+				float distance = sServerFacade.GetDistance2d(bot, player);
+				playerObject["distance"] = static_cast<int>(distance); // Cast to int to truncate
+			}
+			else
+			{
+				playerObject["distance"] = 0; // Zero distance to self
+			}	
+			
+			//playerObject["activity"] = "questing"; // Example placeholder
+			membersObject[player->GetName()] = playerObject;
+		}
+
+		return membersObject;
+	}
+
+	boost::json::object getNearbyPlayersJson(Player* sender, Player* bot)
+	{
+		uint32 maxNearbyPlayers = sPlayerbotAIConfig.zyriaMaxNearbyPlayers;
+
+		boost::json::object membersObject;
+		PlayerbotAI* botAi = bot->GetPlayerbotAI();
+		float maxChatRange = 30.0f;
+		float minChatRange = 10.0f;
+		float scanRange = 50.0f;
+
+		std::vector<std::pair<Player*, float>> nearbyPlayersVec;
+
+		if (botAi)
+		{
+			std::list<ObjectGuid> nearGuids = botAi->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("nearest friendly players")->Get();
+			nearGuids.push_back(bot->GetObjectGuid());
+
+			for (auto& guid : nearGuids)
+			{
+				Player* player = sObjectMgr.GetPlayer(guid);
+				if (!player || !player->IsInWorld() || player == sender)
+					continue;
+
+				float distance = sServerFacade.GetDistance2d(sender, player);
+				if (distance <= scanRange)
+				{
+					nearbyPlayersVec.emplace_back(player, distance);
+				}
+			}
+		}
+
+		// Sort by distance ascending
+		std::sort(nearbyPlayersVec.begin(), nearbyPlayersVec.end(),
+			[](const std::pair<Player*, float>& a, const std::pair<Player*, float>& b)
+			{
+				return a.second < b.second;
+			});
+
+		// Adjust chat range based on number of nearby players (before trimming)
+		float chatRange = maxChatRange;
+		int totalNearby = nearbyPlayersVec.size();
+		if (totalNearby > 20)
+			chatRange = minChatRange;
+		else if (totalNearby > 8)
+			chatRange = maxChatRange - (totalNearby * 1.0f);
+
+		chatRange = std::max(chatRange, minChatRange);
+
+		// Add up to maxNearbyPlayers within chat range
+		int count = 0;
+		for (auto& [player, distance] : nearbyPlayersVec)
+		{
+			if (count >= maxNearbyPlayers)
+				break;
+
+			if (distance <= chatRange)
+			{
+				boost::json::object playerObject;
+				playerObject["distance"] = static_cast<int>(distance);
+				membersObject[player->GetName()] = playerObject;
+				count++;
+			}
+		}
+
+		// Always include the sender
+		membersObject[sender->GetName()] = { {"distance", 0} };
+
+		return membersObject;
+	}
 }

@@ -1254,20 +1254,64 @@ bool UseRandomQuestItemAction::Execute(Event& event)
     Item* item = nullptr;
     for (uint8 i = 0; i< 5;i++)
     {
-        auto itr = questItems.begin();
-        std::advance(itr, urand(0, questItems.size()- 1));
-        Item* questItem = *itr;
+		if (questItems.empty())
+		{
+			sLog.outError("ERROR: <%s> has no valid quest items to use!", bot->GetName());
+			return false;
+		}
 
-        const ItemPrototype* proto = questItem->GetProto();
-        if (proto->StartQuest)
-        {
-            Quest const* qInfo = sObjectMgr.GetQuestTemplate(proto->StartQuest);
-            if (bot->CanTakeQuest(qInfo, false))
-            {
-                item = questItem;
-                break;
-            }
-        }
+		auto itr = questItems.begin();
+		std::advance(itr, urand(0, questItems.size() - 1));
+
+		Item* questItem = *itr;
+		if (!questItem)
+		{
+			sLog.outError("ERROR: <%s> tried to use a null quest item!", bot->GetName());
+			return false;
+		}
+
+		const ItemPrototype* proto = questItem->GetProto();
+		if (!proto)
+		{
+			sLog.outError("ERROR: <%s> tried to use an item with a missing prototype!", bot->GetName());
+			return false;
+		}
+
+		std::string continentName = WorldPosition(bot).getContinentName();
+
+		if (proto->StartQuest)
+		{
+//			sLog.outString("UseRandomQuestItemAction: <%s> is using quest item: %s (ID: %u) in %s for Quest ID: %u",
+//						   bot->GetName(), proto->Name1 ? proto->Name1 : "<Unnamed>", proto->ItemId, continentName.c_str(), proto->StartQuest);
+
+			Quest const* qInfo = sObjectMgr.GetQuestTemplate(proto->StartQuest);
+			if (!qInfo)
+			{
+				sLog.outError("ERROR: <%s> tried to use quest item in %s for Quest ID: %u, but the quest is missing!",
+							  bot->GetName(), continentName.c_str(), proto->StartQuest);
+				return false;
+			}
+
+			uint32 questMapId = qInfo->GetZoneOrSort();
+			uint32 botMapId = bot->GetMapId();
+
+			if (questMapId != botMapId)
+			{
+				sLog.outString("UseRandomQuestItemAction: <%s> is on the wrong continent! Bot map ID: %u, Expected quest map ID: %u, Item ID: %u",
+							   bot->GetName(), botMapId, questMapId, proto->ItemId);
+				return false;
+			}
+
+			if (bot->CanTakeQuest(qInfo, false))
+			{
+				item = questItem;
+			}
+		}
+//		else
+//		{
+//			sLog.outString("UseRandomQuestItemAction: <%s> is using quest item: %s (ID: %u) in %s",
+//						   bot->GetName(), proto->Name1 ? proto->Name1 : "<Unnamed>", proto->ItemId, continentName.c_str());
+//		}
         /*
         uint32 spellId = proto->Spells[0].SpellId;
         if (spellId)

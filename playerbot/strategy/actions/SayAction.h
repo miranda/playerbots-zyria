@@ -2,6 +2,7 @@
 
 #include "playerbot/strategy/Action.h"
 #include "QuestAction.h"
+#include <boost/json.hpp>
 
 namespace ai
 {
@@ -33,7 +34,7 @@ namespace ai
         static delayedPackets LinesToPackets(const std::vector<std::string>& lines, WorldPacket packetTemplate, bool debug = false, uint32 MsPerChar = 0, WorldPacket emoteTemplate = WorldPacket());
 
         static delayedPackets GenerateResponsePackets(const std::string json
-            , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug = false);
+            , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug = false, uint32 botGuid = 0);
 
         static void ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32 guid2, std::string msg, std::string chanName, std::string name);
         static bool HandleThunderfuryReply(Player* bot, ChatChannelSource chatChannelSource, std::string msg, std::string name);
@@ -43,4 +44,6 @@ namespace ai
         static bool SendGeneralResponse(Player* bot, ChatChannelSource chatChannelSource, std::string responseMessage, std::string name);
         static std::string GenerateReplyMessage(Player* bot, std::string incomingMessage, uint32 guid1, std::string name);
     };
+	boost::json::object getNearbyPlayersJson(Player* sender, Player* bot);
+	boost::json::object getGroupMembersJson(Player* bot);
 }

@@ -25,10 +25,15 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <netinet/in.h>
-#include <cstring>
 #include <fcntl.h>
 #include <errno.h>
 #endif
+
+#include <vector>
+#include <mutex>
+#include "strategy/AiObjectContext.h"
+#include "playerbot/AiFactory.h"
+#include <boost/json/error.hpp>
 
 std::string PlayerbotLLMInterface::SanitizeForJson(const std::string& input) {
     std::string sanitized;
@@ -127,16 +132,23 @@ inline std::string RecvWithTimeout(int sock, int timeout_seconds, int& bytesRead
     }
 
 std::string PlayerbotLLMInterface::Generate(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines) {
-    bool debug = !debugLines.empty();
+	bool debug = !debugLines.empty();
 
-    if (sPlayerbotLLMInterface.generationCount > maxGenerations)
-    {
-        if (debug)
-            debugLines.push_back("Maxium generations reached " + std::to_string(sPlayerbotLLMInterface.generationCount) + "/" + std::to_string(maxGenerations));
-        return {};
-    }
+	bool evictedOld = false;
+	if (sPlayerbotLLMInterface.generationCount >= maxGenerations)
+	{
+		if (!sPlayerbotLLMInterface.generationTimes.empty()) {
+			if (debug)
+				debugLines.push_back("Max generations hit. Dropping oldest.");
+			
+			sPlayerbotLLMInterface.generationTimes.pop_front();  // Drop oldest
+			sPlayerbotLLMInterface.generationCount--;
+			evictedOld = true;
+		}
+	}
 
     sPlayerbotLLMInterface.generationCount++;
+    sPlayerbotLLMInterface.generationTimes.push_back(std::chrono::steady_clock::now());
 
     if (debug)
         debugLines.push_back("Generations start " + std::to_string(sPlayerbotLLMInterface.generationCount) + "/" + std::to_string(maxGenerations));
@@ -319,7 +331,9 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, int timeO
     close(sock);
 #endif
 
-    sPlayerbotLLMInterface.generationCount--;
+	sPlayerbotLLMInterface.generationCount--;
+	if (!evictedOld && !sPlayerbotLLMInterface.generationTimes.empty())
+		sPlayerbotLLMInterface.generationTimes.pop_back();
 
     if (debug)
     {
@@ -369,16 +383,27 @@ inline std::string extractBeforePattern(const std::string& content, const std::s
 
 inline std::vector<std::string> splitResponse(const std::string& response, const std::string& splitPattern) {
     std::vector<std::string> result;
-    std::regex pattern(splitPattern);
-    std::smatch match;
     
-    std::sregex_iterator begin(response.begin(), response.end(), pattern);
-    std::sregex_iterator end;
-    for (auto it = begin; it != end; ++it) {
-        result.push_back(it->str());
+    // Special case: if using `|`, consume it completely
+    if (splitPattern == "\\|") {
+        std::regex pattern(splitPattern);
+        std::sregex_token_iterator iter(response.begin(), response.end(), pattern, -1);
+        std::sregex_token_iterator end;
+        for (; iter != end; ++iter) {
+            if (!iter->str().empty())  // Prevent empty splits
+                result.push_back(iter->str());
+        }
+    } 
+    else {	// Default behavior: Keep the split character (like punctuation)
+        std::regex pattern(splitPattern);
+        std::sregex_token_iterator iter(response.begin(), response.end(), pattern, {-1, 0});
+        std::sregex_token_iterator end;
+        for (; iter != end; ++iter) {
+            result.push_back(iter->str());
+        }
     }
 
-    if(result.empty())
+    if (result.empty())
         result.push_back(response);
 
     return result;
@@ -413,8 +438,11 @@ std::vector<std::string> PlayerbotLLMInterface::ParseResponse(const std::string&
         debugLines.push_back("delete pattern:" + deletePattern);
     }
 
-    std::regex regexPattern(deletePattern);
-    actualResponse = std::regex_replace(actualResponse, regexPattern, "");
+	if (!deletePattern.empty())
+	{
+		std::regex regexPattern(deletePattern);
+		actualResponse = std::regex_replace(actualResponse, regexPattern, "");
+	}
 
     if (debug)
     {
@@ -430,24 +458,136 @@ std::vector<std::string> PlayerbotLLMInterface::ParseResponse(const std::string&
     return responses;
 }
 
-void PlayerbotLLMInterface::LimitContext(std::string& context, int currentLength)
+std::pair<std::vector<std::string>, boost::json::object> PlayerbotLLMInterface::ParseResponseV2(const std::string& response, const std::string& splitPattern, std::vector<std::string>& debugLines)
 {
-    if (sPlayerbotAIConfig.llmContextLength && (uint32)currentLength > sPlayerbotAIConfig.llmContextLength)
-    {
-        uint32 cutNeeded = currentLength - sPlayerbotAIConfig.llmContextLength;
+    bool debug = !(debugLines.empty());
 
-        if (cutNeeded > context.size())
-            context.clear();
+    std::string actualResponse;
+    boost::json::object zyria_data;
+
+    if (!sPlayerbotAIConfig.llmUseZyriaServer)
+    {
+        if (debug)
+            debugLines.push_back("[V2] Called but ZyriaServer is not enabled");
+        return { {}, {} };
+    }
+
+    try
+    {
+        boost::json::value jv = boost::json::parse(response);
+        boost::json::object obj = jv.as_object();
+
+        if (obj.contains("text") && obj["text"].is_string())
+            actualResponse = obj["text"].as_string().c_str();
         else
         {
-            uint32 cutPosition = 0;
-            for (auto& c : context)
-            {
-                cutPosition++;
-                if (cutPosition >= cutNeeded && (c == ' ' || c == '.'))
-                    break;
-            }
-            context = context.substr(cutPosition);
+            if (debug)
+                debugLines.push_back("Missing or invalid 'text' field");
+            return { {}, {} };
+        }
+
+        if (obj.contains("zyria_data") && obj["zyria_data"].is_object())
+            zyria_data = obj["zyria_data"].as_object();
+
+        if (debug)
+        {
+            debugLines.push_back("Parsed text: " + actualResponse);
+            debugLines.push_back("Extracted zyria_data: " + boost::json::serialize(zyria_data));
         }
     }
+	catch (const boost::system::system_error& e)
+	{
+		if (debug)
+			debugLines.push_back("Boost.JSON parse error: " + std::string(e.what()));
+		return { {}, {} };
+	}
+
+    std::vector<std::string> responses = splitResponse(actualResponse, splitPattern);
+
+    if (debug)
+        debugLines.insert(debugLines.end(), responses.begin(), responses.end());
+
+    return { responses, zyria_data };
+}
+
+void PlayerbotLLMInterface::LimitContext(std::string& context, int currentLength, std::string knownName)
+{
+    if (!sPlayerbotAIConfig.llmContextLength)
+        return;
+
+    // Optimize space usage before checking length
+    CollapseSpaces(context);
+
+    uint32_t maxLen = sPlayerbotAIConfig.llmContextLength;
+    if (static_cast<uint32_t>(currentLength) <= maxLen)
+        return;
+
+    uint32_t cutNeeded = currentLength - maxLen;
+
+    if (cutNeeded >= context.size())
+    {
+        context.clear();
+        return;
+    }
+
+    size_t trimPos = std::string::npos;
+
+    // 1️⃣ **Check for known NPC name first**
+    if (!knownName.empty())
+    {
+        std::string namePattern = "\\b" + knownName + ":";  // Ensure full name is matched
+        size_t foundPos = context.find(namePattern);
+        
+        if (foundPos != std::string::npos && foundPos >= cutNeeded)
+        {
+            trimPos = foundPos;
+        }
+    }
+
+    // 2️⃣ **Fallback: Find dialog boundary with regex if no known name match**
+    if (trimPos == std::string::npos)
+    {
+        std::regex dialogRegex(R"((?:^|\s)([A-Za-z]+):(\S))"); // Matches "Name:word" format
+        std::smatch match;
+        std::string::const_iterator searchStart = context.cbegin();
+
+        while (std::regex_search(searchStart, context.cend(), match, dialogRegex))
+        {
+            size_t matchStart = static_cast<size_t>(match.position());
+            size_t absolutePos = static_cast<size_t>(searchStart - context.cbegin()) + matchStart;
+
+            if (absolutePos >= cutNeeded)
+            {
+                trimPos = absolutePos;
+                break;
+            }
+
+            searchStart = match.suffix().first; // Move past the current match
+        }
+    }
+
+    // 3️⃣ **Trim context based on the identified position**
+    if (trimPos == std::string::npos)
+    {
+        context.clear();
+    }
+    else
+    {
+        context = context.substr(trimPos);
+    }
+
+}
+
+void PlayerbotLLMInterface::CollapseSpaces(std::string& str)
+{
+	// Remove consecutive spaces
+	str.erase(std::unique(str.begin(), str.end(), [](char a, char b) {
+		return a == ' ' && b == ' ';
+	}), str.end());
+
+	// Trim leading and trailing spaces (optional)
+	if (!str.empty() && str.front() == ' ')
+		str.erase(str.begin());
+	if (!str.empty() && str.back() == ' ')
+		str.pop_back();
 }
