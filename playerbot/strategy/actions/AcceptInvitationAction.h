@@ -39,11 +39,12 @@ namespace ai
             if (!bot->GetGroup() || !bot->GetGroup()->IsMember(inviter->GetObjectGuid()))
                 return false;
 
-			if (sRandomPlayerbotMgr.IsFreeBot(bot) &&
-				(!sPlayerbotAIConfig.llmUseZyriaServer || inviter->GetPlayerbotAI()))	//Don't turn bots into slaves if using Zyria server
+			if (sRandomPlayerbotMgr.IsFreeBot(bot))
 			{
 				ai->SetMaster(inviter);
-				ai->ChangeStrategy("+follow", BotState::BOT_STATE_NON_COMBAT);
+				// Disable auto-follow when players invite bots to group when using Zyria server
+				if (!sPlayerbotAIConfig.llmUseZyriaServer || inviter->GetPlayerbotAI())
+					ai->ChangeStrategy("+follow", BotState::BOT_STATE_NON_COMBAT);
 			}
 
             ai->ResetStrategies();
