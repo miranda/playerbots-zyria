@@ -429,7 +429,7 @@ delayedPackets ChatReplyAction::GenerateResponsePackets(const std::string json
         PlayerbotAI* botAi = bot ? bot->GetPlayerbotAI() : nullptr;
 
 		boost::json::object zyria_data;
-        std::tie(lines, zyria_data) = PlayerbotLLMInterface::ParseResponseV2(response, splitPattern, debugLines);
+        std::tie(lines, zyria_data) = PlayerbotLLMInterface::ParseResponseV2(response, debugLines);
 
         if (!zyria_data.empty())
 		{
@@ -593,7 +593,6 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 
 				std::string json;
 				std::string startPattern, endPattern, deletePattern, splitPattern;
-				startPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseStartPattern, placeholders);
 
 				if (sPlayerbotAIConfig.llmUseZyriaServer)
 				{
@@ -717,10 +716,6 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 
 					json = boost::json::serialize(jsonData);
 					ZyriaDebug("Serialized request JSON: " + json);
-
-					endPattern = "\"";
-					deletePattern = "";
-					splitPattern = "\\|"; 
 				}
 				else
 				{
@@ -755,6 +750,7 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 					json = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmApiJson, jsonFill);
 					json = PlayerbotTextMgr::GetReplacePlaceholders(json, placeholders);
 
+					startPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseStartPattern, placeholders);
 					endPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseEndPattern, placeholders);
 					deletePattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseDeletePattern, placeholders);
 					splitPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseSplitPattern, placeholders);

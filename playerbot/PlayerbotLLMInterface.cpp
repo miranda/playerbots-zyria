@@ -458,7 +458,7 @@ std::vector<std::string> PlayerbotLLMInterface::ParseResponse(const std::string&
     return responses;
 }
 
-std::pair<std::vector<std::string>, boost::json::object> PlayerbotLLMInterface::ParseResponseV2(const std::string& response, const std::string& splitPattern, std::vector<std::string>& debugLines)
+std::pair<std::vector<std::string>, boost::json::object> PlayerbotLLMInterface::ParseResponseV2(const std::string& response, std::vector<std::string>& debugLines)
 {
     bool debug = !(debugLines.empty());
 
@@ -502,7 +502,7 @@ std::pair<std::vector<std::string>, boost::json::object> PlayerbotLLMInterface::
 		return { {}, {} };
 	}
 
-    std::vector<std::string> responses = splitResponse(actualResponse, splitPattern);
+    std::vector<std::string> responses = splitResponse(actualResponse, "\\|");
 
     if (debug)
         debugLines.insert(debugLines.end(), responses.begin(), responses.end());

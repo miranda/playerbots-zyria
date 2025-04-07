@@ -262,6 +262,7 @@ namespace ai
 
         bool SpeakLine();
         bool WaitForLines();
+        bool RequestNewZyriaLines();
         bool RequestNewLines();
         virtual bool Execute(Event& event) override;
 
