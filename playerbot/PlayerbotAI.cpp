@@ -91,6 +91,7 @@ std::string &trim(std::string &s);
 
 std::set<std::string> PlayerbotAI::unsecuredCommands;
 
+std::unordered_map<uint32, time_t> PlayerbotAI::rpgChatBotCooldowns;		// Tracks cooldowns by bot ID
 std::unordered_map<uint32, time_t> PlayerbotAI::initiateChatBotCooldowns;	// Tracks cooldowns by bot ID
 std::unordered_map<uint32, time_t> PlayerbotAI::initiateChatGuildCooldowns;	// Tracks cooldowns by guild ID
 std::unordered_map<uint32, time_t> PlayerbotAI::initiateChatGroupCooldowns;	// Tracks cooldowns by group ID
@@ -1304,6 +1305,15 @@ void PlayerbotAI::UpdateInitiateChatCooldowns(bool setMaximum)
 		initiateChatBotCooldowns[botId] = botCooldownTime;
 		ZyriaDebug("Set " + static_cast<std::string>(bot->GetName()) + "'s initiate chat cooldown time to " + std::to_string(botCooldownTime));
 	}
+}
+
+void PlayerbotAI::UpdateRPGChatCooldown()
+{
+	time_t cooldownTime = time(nullptr) + 5; // 5 seconds into the future
+	uint32 botId = bot->GetObjectGuid();
+
+	rpgChatBotCooldowns[botId] = cooldownTime;
+	ZyriaDebug("Set " + static_cast<std::string>(bot->GetName()) + "'s RPG chat cooldown time to " + std::to_string(cooldownTime));
 }
 
 void PlayerbotAI::HandleTeleportAck()
@@ -7643,21 +7653,6 @@ void PlayerbotAI::SendDelayedPacket(WorldSession* session, futurePackets futPack
     t.detach();
 }
 
-void PlayerbotAI::ReceiveDelayedPacket(futurePackets futPackets)
-{
-    PacketHandlingHelper* handler = &botOutgoingPacketHandlers;
-    std::thread t([handler, futPackets = std::move(futPackets)]() mutable {
-        for (auto& delayedPacket : futPackets.get())
-        {            
-            handler->AddPacket(delayedPacket.first);
-            if(delayedPacket.second)
-                std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
-        }
-        });
-
-    t.detach();
-}
-
 std::string PlayerbotAI::InventoryParseOutfitName(std::string outfit)
 {
     int pos = outfit.find("=");
@@ -8259,7 +8254,7 @@ void PlayerbotAI::QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid
 
 	Player* sender = ObjectAccessor::FindPlayer(guid1);
 	std::string senderName = sender ? sender->GetName() : "Unknown";
-	ZyriaDebug("QueueChatReply: <" + static_cast<std::string>(bot->GetName()) + "> received message from <" + senderName + ">: \"" + message + "\" in channel '" + chanName + "'"); 
+	ZyriaDebug("QueueChatResponse: <" + static_cast<std::string>(bot->GetName()) + "> received message from <" + senderName + ">: \"" + message + "\" in channel '" + chanName + "'"); 
 
     chatReplies.push(ChatQueuedReply(msgType, guid1.GetCounter(), guid2.GetCounter(), message, chanName, name, delay));
 }

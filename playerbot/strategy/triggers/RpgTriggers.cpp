@@ -8,6 +8,8 @@
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "playerbot/TravelMgr.h"
 
+#include "playerbot/ZyriaDebug.h"
+
 using namespace ai;
 
 bool RpgTrigger::IsActive() 

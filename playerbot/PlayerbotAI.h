@@ -370,12 +370,15 @@ public:
 
     void HandleCommands();
     void UpdateInitiateChatCooldowns(bool setMaximum = false);
+    void UpdateRPGChatCooldown();
+	time_t GetRPGChatCooldown() { return rpgChatBotCooldowns[bot->GetObjectGuid()]; }
 
 private:
     void UpdateAIInternal(uint32 elapsed, bool minimal = false) override;
 
 	bool InitiateChat();
 	std::chrono::steady_clock::time_point initiateChatCheckTime;
+	static std::unordered_map<uint32, time_t> rpgChatBotCooldowns;			// Tracks cooldowns by bot ID
 	static std::unordered_map<uint32, time_t> initiateChatBotCooldowns;		// Tracks cooldowns by bot ID
 	static std::unordered_map<uint32, time_t> initiateChatGuildCooldowns;	// Tracks cooldowns by guild ID
 	static std::unordered_map<uint32, time_t> initiateChatGroupCooldowns;	// Tracks cooldowns by group ID
@@ -550,7 +553,6 @@ public:
     std::list<Unit*> GetAllHostileNPCNonPetUnitsAroundWO(WorldObject* wo, float distanceAround);
 
 	static void SendDelayedPacket(WorldSession* session, std::future<std::vector<std::pair<WorldPacket, uint32>>> futurePacket);
-	void ReceiveDelayedPacket(std::future<std::vector<std::pair<WorldPacket, uint32>>> futurePacket);
 public:
     std::vector<Bag*> GetEquippedAnyBags();
     std::vector<Bag*> GetEquippedQuivers();

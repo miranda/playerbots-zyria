@@ -254,7 +254,7 @@ namespace ai
     class RpgAIChatAction : public RpgSubAction
     {
     public:
-        RpgAIChatAction(PlayerbotAI* ai, std::string name = "rpg ai chat") : RpgSubAction(ai, name) {}
+		RpgAIChatAction(PlayerbotAI* ai, std::string name = "rpg ai chat") : RpgSubAction(ai, name), m_nextMessageTime(0) {}
 
         void ManualChat(GuidPosition target, const std::string& line);
     private:
@@ -268,6 +268,8 @@ namespace ai
 
         std::queue<delayedPacket> packets;
         futurePackets futPackets;
+
+		uint32 m_nextMessageTime;	
     };
 
     class RpgSpellAction : public RpgSubAction

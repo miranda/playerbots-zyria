@@ -274,9 +274,10 @@ bool RpgHealAction::Execute(Event& event)
 bool RpgAIChatAction::isUseful()
 {
     GuidPosition guidP = rpg->guidP();
-
     if (!guidP.IsUnit())
+    {
         return false;
+    }
 
     return true;
 }
@@ -285,7 +286,12 @@ bool RpgAIChatAction::SpeakLine()
 {
     if (packets.empty())
         return false;
-
+    
+    // Check if it's time to process the next message
+    uint32 currentTime = WorldTimer::getMSTime();
+    if (currentTime < m_nextMessageTime)
+        return true; // Return true to indicate we're still "busy" with the previous message
+    
     delayedPacket delPacket = packets.front();
     WorldPacket packet = delPacket.first;
     uint32 delay = delPacket.second;
@@ -370,6 +376,9 @@ bool RpgAIChatAction::SpeakLine()
         SET_AI_VALUE(std::string, "manual string::llmcontext rpg", llmContext);
     }
 
+    // After processing the message, update the next message time
+    m_nextMessageTime = currentTime + delay;
+
     packets.pop();
 
     this->SetDuration(uint32(delay/1000.0f));
@@ -407,6 +416,20 @@ bool RpgAIChatAction::RequestNewZyriaLines()
 		return false;
 	}
 
+    PlayerbotAI* botAi = bot ? bot->GetPlayerbotAI() : nullptr;
+
+	if (!botAi)
+		return false;
+
+	time_t cooldown = botAi->GetRPGChatCooldown();
+	std::string botName = bot->GetName();
+
+	if (cooldown > time(nullptr))
+	{
+		ZyriaDebug(botName + " is on RPG chat cooldown", "DEBUG RPG");
+		return false;
+	}
+
     int32 chatLine = AI_VALUE2(int32, "manual int", "rpg ai chat line");
 
     if (chatLine == -1)
@@ -419,7 +442,6 @@ bool RpgAIChatAction::RequestNewZyriaLines()
 	if (chatLine < 0 || chatLine > 1000)	// Prevents corrupted chatLine numbers that never end
 		chatLine = 2;						// Reset to 2 to give bot a chance to speak more
 
-	std::string botName = bot->GetName();
 	std::string unitName = unit->GetName();
 	boost::json::object triggers;
 	
@@ -565,7 +587,19 @@ bool RpgAIChatAction::RequestNewZyriaLines()
 	jsonData["chat_topic"]		= chatTopic;
 	jsonData["time_created"]	= timestamp;
 
+	// Clone JSON data for bot and NPC
+	boost::json::object botJsonData = jsonData;
+	boost::json::object npcJsonData = jsonData;
+
+	botJsonData["speaker_role"] = "bot";
+	npcJsonData["speaker_role"] = "npc";
+
+	std::string botJson = boost::json::serialize(botJsonData);
+	std::string npcJson = boost::json::serialize(npcJsonData);
+
 	ZyriaDebug("RPG AI chat action between bot <" + botName + "> and unit <" + unitName + "> - chatLine = " + std::to_string(chatLine), "DEBUG RPG");
+	ZyriaDebug("Serialized RPG request JSON for bot <" + botName + ">: " + botJson, "DEBUG RPG");
+	ZyriaDebug("Serialized RPG request JSON for unit <" + unitName + ">: " + npcJson, "DEBUG RPG");
 
     WorldSession* session = bot->GetSession();
     
@@ -575,35 +609,19 @@ bool RpgAIChatAction::RequestNewZyriaLines()
 
 	WorldPacket botChatTemplate, botEmoteTemplate, npcChatTemplate, npcEmoteTemplate, systemTemplate = ChatReplyAction::GetPacketTemplate(SMSG_CHAT_RESTRICTED, CHAT_MSG_MONSTER_WHISPER, bot, GetMaster());
 
-	botChatTemplate = ChatReplyAction::GetPacketTemplate(SMSG_CHAT_RESTRICTED, CHAT_MSG_SAY, bot, nullptr);
-	botEmoteTemplate = ChatReplyAction::GetPacketTemplate(SMSG_CHAT_RESTRICTED, CHAT_MSG_EMOTE, bot, nullptr);
+	botChatTemplate = ChatReplyAction::GetPacketTemplate(CMSG_MESSAGECHAT, CHAT_MSG_SAY, bot, nullptr);
+	botEmoteTemplate = ChatReplyAction::GetPacketTemplate(CMSG_MESSAGECHAT, CHAT_MSG_EMOTE, bot, nullptr);
 	npcChatTemplate = ChatReplyAction::GetPacketTemplate(SMSG_CHAT_RESTRICTED, CHAT_MSG_MONSTER_SAY, unit, bot);
 	npcEmoteTemplate = ChatReplyAction::GetPacketTemplate(SMSG_CHAT_RESTRICTED, CHAT_MSG_MONSTER_EMOTE, unit, bot);
+	
+	futurePackets botFuture = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets,
+		botJson, botChatTemplate, botEmoteTemplate, systemTemplate, "", "", "", "", debug, bot->GetObjectGuid());
 
-	futPackets = std::async(std::launch::async, [=]() -> delayedPackets {
-		boost::json::object botJsonData = jsonData;
-		boost::json::object npcJsonData = jsonData;
+	ai->SendDelayedPacket(session, std::move(botFuture));  // Send bot lines normally
 
-		botJsonData["speaker_role"] = "bot";
-		npcJsonData["speaker_role"] = "npc";
-
-		std::string botJson = boost::json::serialize(botJsonData);
-		std::string npcJson = boost::json::serialize(npcJsonData);
-
-		ZyriaDebug("Serialized RPG request JSON for bot <" + botName + ">: " + botJson, "DEBUG RPG");
-		ZyriaDebug("Serialized RPG request JSON for unit <" + unitName + ">: " + npcJson, "DEBUG RPG");
-
-		auto futureBot = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets,
-			botJson, botChatTemplate, botEmoteTemplate, systemTemplate, "", "", "", "", debug, 0);
-		auto futureNpc = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets,
-			npcJson, npcChatTemplate, npcEmoteTemplate, systemTemplate, "", "", "", "", debug, 0);
-
-		delayedPackets botPackets = futureBot.get();
-		delayedPackets npcPackets = futureNpc.get();
-
-		botPackets.insert(botPackets.end(), npcPackets.begin(), npcPackets.end());
-		return botPackets;
-	});
+	// Then assign futPackets for the NPC
+	futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets,
+		npcJson, npcChatTemplate, npcEmoteTemplate, systemTemplate, "", "", "", "", debug, 0);
 
     if (!urand(0, 10))
 	{
@@ -620,6 +638,10 @@ bool RpgAIChatAction::RequestNewZyriaLines()
     }
 
     SET_AI_VALUE2(int32, "manual int", "rpg ai chat line", chatLine);
+	
+	// Update RPG chat cooldown
+	botAi->UpdateRPGChatCooldown();
+	ZyriaDebug("Successfully generated RPG chat requests for bot <" + botName + "> and unit <" + unitName + ">", "DEBUG RPG");
 
     return true;
 }

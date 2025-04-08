@@ -370,10 +370,11 @@ inline void LineToPacket(delayedPackets& delayedPackets, const WorldPacket packe
         {
             delay = std::stoi(match[1]);  // Override delay with extracted value
             line = std::regex_replace(line, delayRegex, "");  // Remove the tag from the message
+			ZyriaDebug("Delaying line \"" + line + "\" by " + std::to_string(delay) + " milliseconds", "DEBUG");
         }
     }
 
-    packet << line;  // ✅ Ensure only the cleaned message is sent
+    packet << line;  // Ensure only the cleaned message is sent
 
     if (packetTemplate.GetOpcode() != CMSG_MESSAGECHAT)
         packet << CHAT_TAG_NONE;
