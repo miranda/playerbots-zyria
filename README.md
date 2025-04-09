@@ -1,3 +1,78 @@
+# Playerbots Fork Modified for Zyria LLM Server Support
+
+This is a modified version of the [Playerbots module](https://github.com/cmangos/playerbots) designed to integrate with the [Zyria LLM Server](https://github.com/miranda/zyria) — a Python-based local LLM server optimized for realistic, context-aware playerbot conversations in cMaNGOS.
+
+This fork introduces native support for the Zyria API while remaining compatible with generic LLM APIs supported by the official project. If you want your bots to engage in immersive, human-like chat using local language models, this is the fork you’ll need.
+
+Zyria is a custom LLM server written in Python that brings a new level of realism to the LLM chat supported by the Playerbot module.  It is highly configurable and has many advanced features, including bot personalities, memories, and is more game context-aware than a standard LLM server.
+
+Learn more about Zyria and get it running with cMaNGOS/Playerbots here:
+[https://github.com/miranda/zyria](https://github.com/miranda/zyria)
+
+---
+
+## Key Differences from Upstream Playerbots
+
+- Adds built-in Zyria API client functions for enhanced, realistic playerbot conversations when using the Zyria server.
+- Custom configuration options in `aiplayerbot.conf` for controlling special Zyria features added in the fork.
+- If Zyria support is disabled in `aiplayerbot.conf` the module will function like the official module, allowing you to still use other LLM servers such as Kobold.cpp — No need to rebuild cMaNGOS.
+- Occasionally there may be some minor bug fixes not in the official Playerbots module.
+
+---
+> **TL;DR Setup Summary**:
+> 1. Replace `PlayerBots` folder with this fork
+> 2. Build with `-DBUILD_PLAYERBOTS=ON -DFETCHCONTENT_FULLY_DISCONNECTED=ON`
+> 3. Copy `aiplayerbot.conf.dist` → `aiplayerbot.conf`
+> 4. Install Zyria → [Zyria Repo](https://github.com/miranda/zyria)
+> 5. Configure LLM section in `aiplayerbot.conf` + Zyria config
+> 6. Enjoy smarter, chatty playerbots with personalities
+
+---
+
+## Installation
+
+### 1. Clone and Replace the Playerbots Module
+
+If you're already working with a cMaNGOS source tree:
+
+Remove the existing `src/modules/PlayerBots` directory and clone or copy this repository's contents into the same location.
+```
+rm -rf src/modules/PlayerBots
+git clone https://github.com/miranda/playerbots-zyria src/modules/PlayerBots
+```
+### 2. Build cMaNGOS with Playerbots Enabled
+Follow the official CMaNGOS installation guide and the official Playerbots installation guide (below), but during the CMake step ensure you have this option enabled:
+```
+-DFETCHCONTENT_FULLY_DISCONNECTED=ON
+```
+For example, your build configuration might look like this:
+```
+cmake ../mangos-tbc \
+    -DCMAKE_INSTALL_PREFIX=$HOME/cmangos/run \
+    -DPCH=\
+    -DDEBUG=0 \
+    -DBUILD_PLAYERBOTS=ON \
+    -DBUILD_AHBOT=false \
+    -DFETCHCONTENT_FULLY_DISCONNECTED=ON
+```
+It is critical to set `-DFETCHCONTENT_FULLY_DISCONNECTED` in order to prevent the standard Playerbots module from being downloaded over playerbots-zyria.
+
+### 3. Copy and Configure Playerbot Settings
+After building, locate the provided configuration template and copy it to your server config directory:
+```
+cd ~/cmangos/run/etc/
+cp aiplayerbot.conf.dist aiplayerbot.conf
+```
+The modified .dist files includes some Zyria-specific settings in the LLM section, as well as a few modified defaults compared to the files packaged with the standard Playerbots module.
+Note: Be sure to backup your standard aiplayerbot.conf file if you have made changes to it and want to duplicate the non-LLM settings in the new file.
+
+The bulk of Zyria's configuration settings are located in its own config files.
+See the [Zyria README](https://github.com/miranda/zyria) for detailed configuration instructions.
+
+Below is the standard Playerbots README:
+
+---
+
 # Playerbots
 Bot AI Core from ike3 for cmangos classic, tbc and wotlk
 
@@ -40,3 +115,4 @@ After you complete all steps above you can check bots config and start your serv
 - [Playerbots Behavior AddOn](https://github.com/celguar/mangosbot-addon)
 - [Playerbot Inventory AddOn](https://github.com/davidonete/mangosbot-EngBags)
 - [Playerbots Discord Channel](https://discord.gg/vmjZUnPUdr)
+
