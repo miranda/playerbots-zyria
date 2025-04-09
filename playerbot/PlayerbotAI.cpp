@@ -7630,14 +7630,20 @@ void PlayerbotAI::SendDelayedPacket(WorldSession* session, futurePackets futPack
             if (!session)
                 return;
 
-            for (auto& delayedPacket : futPacket.get())
-            {
-                std::unique_ptr<WorldPacket> packetPtr(new WorldPacket(delayedPacket.first));
-                session->QueuePacket(std::move(packetPtr));
+			for (auto& delayedPacket : futPacket.get())
+			{
+				if (!session || !session->GetPlayer() || !session->GetPlayer()->IsInWorld())
+				{
+					sLog.outError("SendDelayedPacket: Session or Player no longer valid, aborting.");
+					return;
+				}
 
-                if (delayedPacket.second)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
-            }
+				std::unique_ptr<WorldPacket> packetPtr(new WorldPacket(delayedPacket.first));
+				session->QueuePacket(std::move(packetPtr));
+
+				if (delayedPacket.second)
+					std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
+			}
         }
         catch (const std::system_error& e) {
 			sLog.outError("PlayerbotAI::SendDelayedPacket() system_error: %s", e.what());
