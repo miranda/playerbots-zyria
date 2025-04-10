@@ -1432,3 +1432,15 @@ void PlayerbotMgr::CheckTellErrors(uint32 elapsed)
     }
     errors.clear();
 }
+
+bool PlayerbotMgr::IsSelfBot(Player* player)
+{
+    if (!player)
+        return false;
+
+    ObjectGuid guid = player->GetObjectGuid();
+    uint32 always = sRandomPlayerbotMgr.GetValue(guid.GetCounter(), "always");
+
+    // Only consider it a "self bot" if the player has an AI and is flagged active
+    return player->GetPlayerbotAI() && (BotAlwaysOnline)always == BotAlwaysOnline::ACTIVE;
+}

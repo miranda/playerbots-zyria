@@ -606,7 +606,7 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 					auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
 
 					// Populate sender (player) details
-					senderDetails["type"]		= player->isRealPlayer() ? "player" : "bot";
+					senderDetails["type"]		= (player->isRealPlayer() && !PlayerbotMgr::IsSelfBot(player)) ? "player" : "bot";
 					senderDetails["name"]		= playerName;
 					senderDetails["gender"]		= player->getGender() == GENDER_MALE ? "male" : "female";
 					senderDetails["level"]		= std::to_string(player->GetLevel());

@@ -45,7 +45,7 @@ public:
     uint32 GetAccountId(std::string name);
     std::string ListBots(Player* master);
     uint32 GetPlayerbotsAmount() const;
-
+	
 protected:
     virtual void OnBotLoginInternal(Player * const bot) = 0;
     void Cleanup();
@@ -73,6 +73,8 @@ public:
     Player* GetMaster() const { return master; };
 
     void SaveToDB();
+
+	static bool IsSelfBot(Player* player);
 
 protected:
     virtual void OnBotLoginInternal(Player * const bot);
