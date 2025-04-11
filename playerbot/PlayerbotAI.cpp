@@ -1191,7 +1191,7 @@ bool PlayerbotAI::InitiateChat()
 
 	uint32 guildId = bot->GetGuildId();
 
-	if (guildId && (urand(0, 100) <= guildChance))
+	if (guildId && IsInRealGuild() && (urand(0, 100) <= guildChance))
 	{
 		if (!initiateChatGuildCooldowns[guildId] || (now - initiateChatGuildCooldowns[guildId] >= minCooldown))
 		{
@@ -1793,7 +1793,6 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
                 break;
             }
 #endif
-
             bool isAiChat = sPlayerbotAIConfig.llmEnabled > 0 && (HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3);
 			bool useZyriaServer = sPlayerbotAIConfig.llmUseZyriaServer;
             ChatChannelSource chatChannelSource = bot->GetPlayerbotAI()->GetChatChannelSource(bot, msgtype, chanName);
@@ -1842,7 +1841,7 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
                     if (bot->InBattleGround() && !(isMentioned || (msgtype != CHAT_MSG_CHANNEL && !isFromFreeBot)))
                         return;
 
-                    if (HasRealPlayerMaster() && guid1 != GetMaster()->GetObjectGuid())
+                    if (HasRealPlayerMaster() && guid1 != GetMaster()->GetObjectGuid() && !PlayerbotMgr::IsSelfBot(bot))
                         return;
 
                     if (lang == LANG_ADDON)

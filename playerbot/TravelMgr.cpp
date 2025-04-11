@@ -2360,5 +2360,24 @@ std::vector<std::pair<WorldPosition, float>> TravelMgr::sqMapTransDistances(cons
         retPortals.push_back(std::make_pair(realEnd, sqDist));
     }
 
-    return minDist;
+    return retPortals;
+}
+
+float TravelMgr::MapTransDistance(const WorldPosition& start, const WorldPosition& end, bool toMap) const
+{
+    std::vector<std::pair<WorldPosition, float>> portals = sqMapTransDistances(start, end.getMapId());
+
+    if (portals.empty())
+        return FLT_MAX;
+
+    float minsqDist = FLT_MAX;
+
+    for (auto& [portal, distance] : portals)
+    {
+        float sqDist = portal.sqDistance2d(end);
+        if (sqDist < minsqDist)
+            minsqDist = sqDist;
+    }
+
+    return sqrt(minsqDist);
 }
