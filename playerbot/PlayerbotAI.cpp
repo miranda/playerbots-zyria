@@ -52,10 +52,7 @@
 #include "LuaEngine/LuaEngine.h"
 #endif
 
-#include <mutex>
 #include "ZyriaDebug.h"
-#include <execinfo.h>
-#include <unistd.h>
 
 static std::deque<std::chrono::steady_clock::time_point> recentMessages;
 static std::deque<std::chrono::steady_clock::time_point> recentLowPriorityMessages;
