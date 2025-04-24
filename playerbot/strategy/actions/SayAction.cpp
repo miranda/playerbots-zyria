@@ -644,7 +644,7 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 					{
 						if (group && !group->IsRaidGroup())
 						{
-							zyriaChannel = "Party" + std::to_string(group->GetId()) + "_";
+							zyriaChannel = "Party_" + std::to_string(group->GetId()) + "_" + llmChannel;
 							channelMembersJson = getGroupMembersJson(bot);
 							ZyriaDebug("Group members: " + boost::json::serialize(channelMembersJson));
 						}
@@ -653,7 +653,7 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 					{
 						if (group && group->IsRaidGroup())
 						{
-							zyriaChannel = "Raid" + std::to_string(group->GetId()) + "_";
+							zyriaChannel = "Raid_" + std::to_string(group->GetId()) + "_" + llmChannel;
 							channelMembersJson = getGroupMembersJson(bot);
 							ZyriaDebug("Group members: " + boost::json::serialize(channelMembersJson));
 						}
@@ -662,7 +662,7 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 					{
 						if (uint32 guildId = bot->GetGuildId())
 						{
-							zyriaChannel = "Guild" + std::to_string(guildId) + "_";
+							zyriaChannel = "Guild_" + std::to_string(guildId);
 
 							std::vector<std::string> guildMembers = ChatHelper::getGuildMemberNames(bot);
 							for (const auto& member : guildMembers)
@@ -677,21 +677,27 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 						  || sourceName[chatChannelSource] == "with body language"
 						  || sourceName[chatChannelSource] == "with an emote")
 					{
-						zyriaChannel = "Directly" + std::to_string(bot->GetGuildId()) + "_";
+						zyriaChannel = "Directly_" + llmChannel;
 						if (PlayerbotAI* botAi = bot->GetPlayerbotAI())
 							channelMembersJson = getNearbyPlayersJson(player, bot);
 					}
 					else if (sourceName[chatChannelSource] == "in private message")
 					{
-						zyriaChannel = "Whisper_";
+						std::string first = playerName;
+						std::string second = botName;
+
+						if (second < first)
+							std::swap(first, second);
+
+						zyriaChannel = "Whisper_" + first + "_" + second;
 					}
 					else if (!chanName.empty())
 					{
-						zyriaChannel = chanName + "_";
+						zyriaChannel = chanName + "_" + llmChannel;
 					}
 					else
 					{
-						zyriaChannel = "Unknown_";
+						zyriaChannel = "Unknown_" + llmChannel;
 					}
 
 					// Populate JSON data
@@ -700,19 +706,19 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 					jsonData["speaker"]			= speakerDetails;
 					jsonData["expansion"]		= sPlayerbotAIConfig.zyriaExpansionSelect;
 					jsonData["channel_members"] = std::move(channelMembersJson);
-					jsonData["llm_channel"]		= zyriaChannel + llmChannel;
+					jsonData["llm_channel"]		= zyriaChannel;
 					jsonData["channel_label"]	= sourceName[chatChannelSource];
 					jsonData["time_created"]	= timestamp;
 
 					if (initiateChat)
 					{
 						ai->UpdateInitiateChatCooldowns(true);
-						ZyriaDebug(botName + " is initiating chat using llmChannel " + llmChannel);
+						ZyriaDebug(botName + " is initiating chat using llmChannel " + llmChannel + "(Zyria llm_channel: " + zyriaChannel + ")");
 					}
 					else
 					{
 						jsonData["message"]		= PlayerbotLLMInterface::SanitizeForJson(msg);
-						ZyriaDebug(playerName + " is sending message \"" + msg + "\" to " + botName + " using llmChannel " + llmChannel);
+						ZyriaDebug(playerName + " is sending message \"" + msg + "\" to " + botName + " using llmChannel " + llmChannel + "(Zyria llm_channel: " + zyriaChannel + ")");
 					}
 
 					json = boost::json::serialize(jsonData);
