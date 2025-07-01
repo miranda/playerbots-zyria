@@ -189,7 +189,7 @@ bool RequiresItemToUse(const ItemPrototype* itemProto, PlayerbotAI* ai, Player* 
         return true;
 
     // Exception items                                  Jujus                                            Holy water
-    const std::unordered_set<uint32> itemExceptions = { 12450, 12451, 12455, 12457, 12458, 12459, 12460, 13180 };
+    const std::unordered_set<uint32> itemExceptions = { 12450, 12451, 12455, 12457, 12458, 12459, 12460, 13180, 7189 };
     if (itemExceptions.find(itemProto->ItemId) != itemExceptions.end())
         return false;
 
@@ -407,8 +407,8 @@ bool UseAction::UseItemInternal(Player* requester, uint32 itemId, Unit* unit, Ga
     }
 #endif
 
-    // Check for item equipped
-    if (proto->InventoryType != INVTYPE_NON_EQUIP && !(itemUsed || !itemUsed->IsEquipped()))
+    // Check for item equipped, skip exceptions listed in RequiresItemToUse
+    if (proto->InventoryType != INVTYPE_NON_EQUIP && itemUsed && !itemUsed->IsEquipped())
     {
         if (verbose)
         {
@@ -611,10 +611,16 @@ bool UseAction::UseItemInternal(Player* requester, uint32 itemId, Unit* unit, Ga
             BotUseItemSpell* spell = new BotUseItemSpell(bot, spellInfo, (successCasts > 0) ? TRIGGERED_OLD_TRIGGERED : TRIGGERED_NONE);
             spell->m_clientCast = true;
             
-#ifndef MANGOSBOT_ZERO
+#ifdef MANGOSBOT_ONE
             // used in item_template.spell_2 with spell_id with SPELL_GENERIC_LEARN in spell_1
-            if ((spellInfo->Id == SPELL_ID_GENERIC_LEARN) && proto->Spells[1].SpellTrigger == ITEM_SPELLTRIGGER_LEARN_SPELL_ID)
+            if (spellInfo->Id == SPELL_ID_GENERIC_LEARN && proto->Spells[1].SpellTrigger == ITEM_SPELLTRIGGER_LEARN_SPELL_ID)
                 spell->m_currentBasePoints[EFFECT_INDEX_0] = proto->Spells[1].SpellId; 
+#endif
+#ifdef MANGOSBOT_TWO
+            // used in item_template.spell_2 with spell_id with SPELL_GENERIC_LEARN in spell_1
+            if ((spellInfo->Id == SPELL_ID_GENERIC_LEARN
+                || spellInfo->Id == SPELL_ID_GENERIC_LEARN_PET) && proto->Spells[1].SpellTrigger == ITEM_SPELLTRIGGER_LEARN_SPELL_ID)
+                spell->m_currentBasePoints[EFFECT_INDEX_0] = proto->Spells[1].SpellId;
 #endif
 
             // Spend the item if used in the spell
@@ -1191,6 +1197,9 @@ bool UseHearthStoneAction::isUseful()
         return false;
 
     if (bot->IsFlying() && WorldPosition(bot).currentHeight() > 10.0f)
+        return false;
+
+    if (!bot->HasItemCount(6948, 1))
         return false;
 
     return true;

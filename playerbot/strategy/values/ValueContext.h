@@ -100,6 +100,9 @@
 #include "TravelValues.h"
 #include "LootValues.h"
 #include "GlyphValues.h"
+#include "StuckValues.h"
+#include "FishValues.h"
+#include "RuneForgeValues.h"
 
 namespace ai
 {
@@ -371,6 +374,7 @@ namespace ai
             creators["manual saved int"] = [](PlayerbotAI* ai) { return new IntManualSetSavedValue(ai); };
             creators["manual string"] = [](PlayerbotAI* ai) { return new StringManualSetValue(ai); };
             creators["manual saved string"] = [](PlayerbotAI* ai) { return new StringManualSetSavedValue(ai); };
+            creators["manual time"] = [](PlayerbotAI* ai) { return new TimeManualSetValue(ai); };
             creators["group count"] = [](PlayerbotAI* ai) { return new GroupBoolCountValue(ai); };
             creators["group and"] = [](PlayerbotAI* ai) { return new GroupBoolANDValue(ai); };
             creators["group or"] = [](PlayerbotAI* ai) { return new GroupBoolORValue(ai); };
@@ -441,6 +445,18 @@ namespace ai
             creators["should travel named"] = [](PlayerbotAI* ai) { return new ShouldTravelNamedValue(ai); };
             creators["in overworld"] = [](PlayerbotAI* ai) { return new InOverworldValue(ai); };
             creators["quest stage active"] = [](PlayerbotAI* ai) { return new QuestStageActiveValue(ai); };
+
+            creators["can fish"] = [](PlayerbotAI* ai) { return new CanFishValue(ai); };
+            creators["can open fishing dobber"] = [](PlayerbotAI* ai) { return new CanOpenFishingDobberValue(ai); };
+            creators["done fishing"] = [](PlayerbotAI* ai) { return new DoneFishingValue(ai); };
+
+            //Stuck
+            creators["time since last change"] = [](PlayerbotAI* ai) { return new TimeSinceLastChangeValue(ai); };
+            creators["distance moved since"] = [](PlayerbotAI* ai) { return new DistanceMovedSinceValue(ai); };
+
+            creators["runeforge spells"] = [](PlayerbotAI* ai) { return new RuneForgeSpellsValue(ai); };
+            creators["best runeforge spell"] = [](PlayerbotAI* ai) { return new BestRuneForgeSpellValue(ai); };
+            creators["should runeforge"] = [](PlayerbotAI* ai) { return new ShouldRuneForgeValue(ai); };
         };
     };
 }

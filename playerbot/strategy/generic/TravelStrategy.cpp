@@ -52,7 +52,7 @@ void TravelStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
         {"",TravelDestinationPurpose::GatherMining, 6.5f},                                                     // 90%/40% in group
         {"",TravelDestinationPurpose::GatherSkinning, 6.5f},                                                   // 90%/40% in group
         {"",TravelDestinationPurpose::GatherHerbalism, 6.5f},                                                  // 90%/40% in group
-        //{"",TravelDestinationPurpose::GatherFishing, 6.5f},                                                  // 90%/40% in group
+        {"",TravelDestinationPurpose::GatherFishing, 6.5f},                                                    // 90%/40% in group
         {"",TravelDestinationPurpose::Boss, 6.4f},                                                             // 50%
         {"",TravelDestinationPurpose::Explore, 6.29f},                                                         // 10%
         {"",TravelDestinationPurpose::GenericRpg, 6.28f},                                                      // 50%
@@ -108,7 +108,7 @@ void TravelStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("check mount state", 1), new NextAction("move to travel target", 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "val::travel target active",
+        "often",
         NextAction::array(0, new NextAction("travel", 1), NULL)));
 }
 

@@ -64,19 +64,44 @@ bool MoveToTravelTargetAction::Execute(Event& event)
             if (!urand(0, 5))
             {
                 std::ostringstream out;
-                if (ai->GetMaster() && !bot->GetGroup()->IsMember(ai->GetMaster()->GetObjectGuid()))
+                if ((ai->GetMaster() && !bot->GetGroup()->IsMember(ai->GetMaster()->GetObjectGuid())) || !ai->HasActivePlayerMaster())
                     out << "Waiting a bit for ";
                 else
                     out << "Please hurry up ";
 
                 out << member->GetName();
 
+                if (bot->GetPlayerbotAI() && !ai->HasActivePlayerMaster())
+                {    
+                        out << " who is " << round(memberDistance) << "y away";
+                        out << " in " << memberPos.getAreaName();
+                }
+
                 ai->TellPlayerNoFacing(GetMaster(), out, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
             }
 
-            target->SetExpireIn(target->GetTimeLeft() + sPlayerbotAIConfig.maxWaitForMove);
+            // Introduce a random delay between 80% and 120% of maxWaitForMove to make waiting more natural
+            uint32 randomDelay = sPlayerbotAIConfig.maxWaitForMove * (urand(80, 120) / 100.0f);
+            target->SetExpireIn(target->GetTimeLeft() + randomDelay);
 
-            SetDuration(sPlayerbotAIConfig.maxWaitForMove);
+            SetDuration(randomDelay);
+
+            // Occasionally face the member and perform an emote
+            if (urand(0, 3) == 0) { // 25% chance to emote
+                bot->SetFacingToObject(member);
+                uint32 emoteChoice = urand(0, 2);
+                switch (emoteChoice) {
+                    case 0:
+                        bot->HandleEmoteCommand(EMOTE_ONESHOT_POINT);
+                        break;
+                    case 1:
+                        bot->HandleEmoteCommand(EMOTE_ONESHOT_TALK);
+                        break;
+                    case 2:
+                        bot->HandleEmoteCommand(EMOTE_ONESHOT_EXCLAMATION);
+                        break;
+                }
+            }
 
             return true;
         }

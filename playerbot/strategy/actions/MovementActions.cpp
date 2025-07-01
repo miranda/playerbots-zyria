@@ -112,20 +112,23 @@ bool MovementAction::FlyDirect(WorldPosition &startPosition, WorldPosition &endP
         std::vector<WorldPosition> path;
         if (movePath.empty()) //Make a path starting at the end backwards to see if we can walk to some better place.
         {
-            path = endPosition.getPathTo(startPosition, bot);
-            std::reverse(path.begin(), path.end());
+            path = endPosition.getPathTo(startPosition, bot);            
         }
         else
+        {
+            std::reverse(path.begin(), path.end());
             path = movePath.getPointPath();
+        }
 
         if (path.empty())
             return false;
 
-        auto pathEnd = path.end();
-        for (auto& p = pathEnd; p-- != path.begin(); ) //Find the furtest point where we can fly to directly.
-            if (p->getMapId() == startPosition.getMapId() && p->isOutside() && p->canFly())
+
+
+        for (auto& p : path) //Find the furtest point where we can fly to directly.
+            if (p.getMapId() == startPosition.getMapId() && p.isOutside() && p.canFly())
             {
-                movePosition = *p;
+                movePosition = p;
                 totalDistance = startPosition.distance(movePosition);
                 break;
             }
@@ -360,7 +363,7 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
     {
         movePosition = endPosition;
 
-        if (startPosition.getMapId() != endPosition.getMapId() || totalDistance > maxDist)
+        if (startPosition.getMapId() != endPosition.getMapId() || totalDistance > maxDist || (startPosition.getMapId() == 609 && fabs(startPosition.getZ() - endPosition.getZ()) > 20.0f))
         {
             if (!sTravelNodeMap.getNodes().empty() && !bot->InBattleGround())
             {
@@ -717,6 +720,7 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
                 }
 #ifdef MANGOSBOT_TWO                
                 bot->OnTaxiFlightEject(true);
+                ai->Unmount();
 #endif
                 bool goTaxi = bot->ActivateTaxiPathTo({ tEntry->from, tEntry->to }, unit, 1);
 #ifdef MANGOSBOT_TWO
@@ -726,6 +730,19 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
                     bot->SetMoney(botMoney);
 
                 return goTaxi;
+            }
+            else
+            {
+#ifdef MANGOSBOT_TWO                
+                bot->OnTaxiFlightEject(true);
+                ai->Unmount();
+#endif
+                bool goClick = ai->HandleSpellClick(entry); //Source gryphon of ebonhold.
+#ifdef MANGOSBOT_TWO
+                bot->ResolvePendingMount();
+#endif
+
+                return goClick;
             }
         }
 
@@ -2404,7 +2421,7 @@ bool JumpAction::Execute(ai::Event &event)
     {
         jumpInPlace = frand(0.0f, 1.0f) < sPlayerbotAIConfig.jumpInPlaceChance;
         jumpBackward = frand(0.0f, 1.0f) < sPlayerbotAIConfig.jumpBackwardChance;
-        if (sServerFacade.isMoving(bot))
+        if (sServerFacade.isMoving(bot) || bot->IsMounted())
         {
             jumpInPlace = false;
         }
@@ -2776,12 +2793,6 @@ WorldPosition JumpAction::CalculateJumpParameters(const WorldPosition& src, Unit
 
         if (!foundCollision)
         {
-            fx += jumper->GetCollisionWidth() * vcos;
-            fy += jumper->GetCollisionWidth() * vsin;
-        }
-
-        if (!foundCollision)
-        {
             // check distanct collision
             if (ascending)
                 fz += jumper->GetCollisionHeight();
@@ -2792,7 +2803,7 @@ WorldPosition JumpAction::CalculateJumpParameters(const WorldPosition& src, Unit
 #ifdef MANGOSBOT_TWO
             foundCollision = jumper->GetMap()->GetHitPosition(ox, oy, oz, fx, fy, fz, jumper->GetPhaseMask(), -0.5f);
 #else
-            foundCollision = jumper->GetMap()->GetHitPosition(ox, oy, oz, fx, fy, fz, -0.5f);
+            foundCollision = jumper->GetMap()->GetHitPosition(ox, oy, oz + 0.5f, fx, fy, fz, -0.5f);
 #endif
 
             if (!foundCollision)
@@ -2841,6 +2852,8 @@ WorldPosition JumpAction::CalculateJumpParameters(const WorldPosition& src, Unit
 #else
                 jumper->GetMap()->GetHitPosition(fx, fy, fz, fx, fy, fz_mod, -0.5f);
 #endif
+                fz = fz_mod;
+                //fz = fz - CONTACT_DISTANCE - jumper->GetCollisionHeight();
             }
 
             WorldPosition destination = WorldPosition(src.getMapId(), fx, fy ,fz);
@@ -3161,7 +3174,7 @@ bool JumpAction::DoJump(const WorldPosition &dest, const WorldPosition& highestP
 
     // write jump info
     uint32 curTime = sWorld.GetCurrentMSTime();
-    uint32 jumpTime = curTime + sWorld.GetAverageDiff() + uint32(timeToLand * IN_MILLISECONDS);
+    uint32 jumpTime = curTime + sWorld.GetAverageDiff() * 2 + uint32(timeToLand * IN_MILLISECONDS);
     ai->SetJumpTime(jumpTime);
     bot->m_movementInfo.jump.zspeed = -vSpeed;
     bot->m_movementInfo.jump.cosAngle = vcos;

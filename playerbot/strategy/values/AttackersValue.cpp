@@ -373,7 +373,16 @@ bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool c
         // If the target is not fighting the player (and if the owner bot is not pulling the target)
         if (checkInCombat && !InCombat(target, player, (player == owner)))
         {
-            return false;
+            bool isRtiTarget = false;
+            if (player->GetPlayerbotAI() && !player->GetPlayerbotAI()->HasActivePlayerMaster())
+            {
+                Unit* rtiTarget = PAI_VALUE(Unit*, "rti target");
+                if (target == rtiTarget)
+                    isRtiTarget = true;
+            }
+
+            if(!isRtiTarget)
+                return false;
         }
 
         // If the target is a player's pet and in a PvP prohibited zone
@@ -448,13 +457,20 @@ bool AttackersValue::IgnoreTarget(Unit* target, Player* playerToCheckAgainst)
 #define TRAINING_DUMMY_NPC_ENTRY3 190015
 #define THERAMORE_COMBAT_DUMMY 4952
 #define NAXXRAMAS_COMBAT_DUMMY 16211
+#ifdef MANGOSBOT_TWO  
+#define INITATES_TRAINING_DUMMY 32541
+#endif
 
-        if (entry == TRAINING_DUMMY_NPC_ENTRY1 ||
-            entry == TRAINING_DUMMY_NPC_ENTRY2 ||
-            entry == TRAINING_DUMMY_NPC_ENTRY3 ||
-            entry == THERAMORE_COMBAT_DUMMY ||
-            entry == NAXXRAMAS_COMBAT_DUMMY)
+        switch (entry)
         {
+        case TRAINING_DUMMY_NPC_ENTRY1:
+        case TRAINING_DUMMY_NPC_ENTRY2:
+        case TRAINING_DUMMY_NPC_ENTRY3:
+        case THERAMORE_COMBAT_DUMMY:
+        case NAXXRAMAS_COMBAT_DUMMY:
+#ifdef MANGOSBOT_TWO     
+        case INITATES_TRAINING_DUMMY:
+#endif
             isDummy = true;
         }
 

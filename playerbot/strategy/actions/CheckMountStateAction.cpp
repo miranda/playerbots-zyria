@@ -523,6 +523,9 @@ bool CheckMountStateAction::Mount(Player* requester, bool limitSpeedToGroup)
 
         if (didMount)
         {
+            if(sServerFacade.isMoving(bot))
+                ai->HandleCommand(CHAT_MSG_WHISPER, "do check mount state", *bot);
+
             if (ai->HasStrategy("debug mount", BotState::BOT_STATE_NON_COMBAT))
                 ai->TellPlayerNoFacing(requester, "Mounting.");
 

@@ -416,7 +416,10 @@ void RandomPlayerbotMgr::LogPlayerLocation()
                     }
 
                     out << (bot->IsInCombat() ? "combat" : "safe") << ",";
-                    out << (bot->IsDead() ? (bot->GetCorpse() ? "ghost" : "dead") : "alive");
+                    out << (bot->IsDead() ? (bot->GetCorpse() ? "ghost" : "dead") : "alive") << ",";
+
+                    if (bot->GetGroup())
+                        WorldPosition(bot).printWKT({ bot, sObjectMgr.GetPlayer(bot->GetGroup()->GetLeaderGuid()) }, out, 1);
 
 
                     sPlayerbotAIConfig.log("player_location.csv", out.str().c_str());
@@ -490,7 +493,10 @@ void RandomPlayerbotMgr::LogPlayerLocation()
                 }
 
                 out << (bot->IsInCombat() ? "combat" : "safe") << ",";
-                out << (bot->IsDead() ? (bot->GetCorpse() ? "ghost" : "dead") : "alive");
+                out << (bot->IsDead() ? (bot->GetCorpse() ? "ghost" : "dead") : "alive") << ",";
+
+                if (bot->GetGroup())
+                    WorldPosition(bot).printWKT({ bot, sObjectMgr.GetPlayer(bot->GetGroup()->GetLeaderGuid()) }, out, 1);
 
                 sPlayerbotAIConfig.log("player_location.csv", out.str().c_str());
 
@@ -833,7 +839,7 @@ void RandomPlayerbotMgr::LoadNamedLocations()
 {
     namedLocations.clear();
 
-    auto result = WorldDatabase.Query("SELECT `name`, `map_id`, `position_x`, `position_y`, `position_z`, `orientation` FROM `ai_playerbot_named_location`");
+    auto result = WorldDatabase.Query("SELECT `name`, `map_id`, `position_x`, `position_y`, `position_z`, `orientation` FROM `ai_playerbot_named_location` WHERE `name` NOT LIKE 'FISH_LOCATION%'");
 
     if (!result)
     {

@@ -4,6 +4,7 @@
 #include "playerbot/LootObjectStack.h"
 #include "playerbot/ServerFacade.h"
 #include "PositionValue.h"
+#include "Stances.h"
 
 namespace ai
 {
@@ -41,6 +42,8 @@ namespace ai
             if (qualifier == "rpg target")
             {
                 GuidPosition rpgTarget = AI_VALUE(GuidPosition, qualifier);
+                if (!rpgTarget) return FLT_MAX;
+                rpgTarget.updatePosition(bot->GetInstanceId());
                 return rpgTarget.distance(bot);
             }
             else if (qualifier == "travel target")
